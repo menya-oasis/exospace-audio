@@ -109,6 +109,26 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
 .notice button { justify-self: start; }
 .err { color: var(--floor); font-size: 13px; }
 .foot { color: var(--muted); font-size: 12px; }
+.nbw { display: inline-flex; align-items: baseline; gap: 4px; }
+.nb { width: 96px; min-height: 36px; text-align: right; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px; font-family: var(--font-num); font-size: 13px; font-variant-numeric: tabular-nums; }
+.nbw .u { color: var(--muted); font-size: 12px; min-width: 2ch; }
+.sub2 { margin: 14px 0 4px; font-size: 13px; font-weight: 700; }
+.chk { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; }
+.chk input { width: 22px; height: 22px; margin: 2px 0 0; accent-color: var(--wall); flex: none; }
+.chk span { min-width: 0; }
+textarea { width: 100%; min-height: 96px; resize: vertical; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-family: var(--font-num); font-size: 12px; line-height: 1.5; color: var(--ink); }
+canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); margin: 6px 0; }
+.flt { list-style: none; margin: 4px 0 8px; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; font-size: 12px; }
+.flt li { border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; font-family: var(--font-num); display: flex; justify-content: space-between; gap: 6px; }
+.walls { display: grid; grid-template-columns: auto repeat(4, minmax(0, 1fr)); gap: 6px; align-items: center; font-size: 12px; margin: 6px 0; }
+.walls .h { color: var(--muted); text-align: center; }
+.walls .nb { width: 100%; min-width: 0; padding: 2px 4px; }
+.msg { font-size: 13px; overflow-wrap: anywhere; }
+.msg.err { color: var(--floor); }
+.btn.small { min-height: 36px; padding: 5px 12px; font-size: 13px; }
+.seg3 { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin: 6px 0; }
+.seg3 button { border: 0; background: transparent; min-height: 42px; font-weight: 700; }
+.seg3 button[aria-pressed=true] { background: var(--on); color: var(--on-ink); }
 </style>
 
 <div class="app">
@@ -172,16 +192,22 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
   </section>
 
   <section class="group" aria-label="クロスフィード" id="bauerSec">
-    <h2>クロスフィード Bauer v3</h2>
+    <h2>クロスフィード</h2>
     <div class="sw">
       <div class="t"><b>クロスフィード</b><span>直接音だけに掛けます。反射には掛けません。</span></div>
       <button class="tog" id="bauerOn" aria-pressed="true" aria-label="クロスフィード"></button>
     </div>
-    <div class="ctl"><label for="bauer_depth">深さ</label><output id="o_bauer_depth"></output>
-      <input type="range" id="bauer_depth" min="0" max="1.2" step="0.01"></div>
+    <div class="seg3" role="group" aria-label="クロスフィードの方式">
+      <button id="bmExo" aria-pressed="true">ExoSpace方式 (Bauer v3)</button>
+      <button id="bmBs" aria-pressed="false">bs2b式</button>
+    </div>
+    <div class="hint" id="bmNote"></div>
+    <div id="bxExo"></div>
+    <div id="bxBs" hidden></div>
+    <div class="row" id="bxPresets"></div>
   </section>
 
-  <section class="group" aria-label="空間">
+  <section class="group" aria-label="空間" id="spaceSec">
     <h2 id="spaceH">空間 Pro 11 v4</h2>
     <div class="sw">
       <div class="t"><b>空間</b><span id="spaceSub">8つの壁反射、床・天井、残響。</span></div>
@@ -209,6 +235,49 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
       <div class="ctl"><label for="mat_dir_strength">指向性の強さ</label><output id="o_mat_dir_strength"></output>
         <input type="range" id="mat_dir_strength" min="0" max="1.5" step="0.05"></div>
     </div>
+  </section>
+
+  <section class="group" aria-label="EQとHRTF" id="postSec">
+    <h2>EQ・HRTF (最後に掛けます)</h2>
+    <div class="sw">
+      <div class="t"><b>EQファイル</b><span id="eqMsg" class="msg">まだ読み込んでいません。</span></div>
+      <button class="tog" id="eqOn" aria-pressed="false" aria-label="EQ"></button>
+    </div>
+    <div class="row">
+      <button class="btn" id="eqPick">EQファイルを選ぶ</button>
+      <button class="btn" id="eqClear">外す</button>
+    </div>
+    <input type="file" id="eqFile" hidden>
+    <canvas class="curve" id="eqCv" role="img" aria-label="EQの周波数特性"></canvas>
+    <ul class="flt" id="eqFlt"></ul>
+    <label class="chk"><input type="checkbox" id="eqPre" checked><span>プリアンプを使う<br><span class="hint" id="eqPreTxt">EQで持ち上げた分だけ音量を下げて、音割れを防ぎます。</span></span></label>
+    <details>
+      <summary>EQのテキストを貼り付けて読み込む</summary>
+      <textarea id="eqText" spellcheck="false" placeholder="Preamp: -4.0 dB&#10;Filter 1: ON LSC Fc 105 Hz Gain 3.0 dB Q 0.70&#10;Filter 2: ON PK Fc 3000 Hz Gain -2.5 dB Q 2.0&#10;GraphicEQ: 20 0.0; 1000 0.5; 8000 -3.0; 19897 -1.0"></textarea>
+      <button class="btn small" id="eqPaste">貼り付けた内容を読み込む</button>
+    </details>
+    <div class="hint">読み込める形式：Equalizer APO / AutoEq の「Preamp」「Filter」行と、「GraphicEQ:」行。左右は同じEQで処理します。ファイルは端末の外へ送られません。</div>
+
+    <div class="sub2">HRTF (個人の耳の補正)</div>
+    <div class="sw">
+      <div class="t"><b>HRTFファイル</b><span id="hrMsg" class="msg">まだ読み込んでいません。</span></div>
+      <button class="tog" id="hrOn" aria-pressed="false" aria-label="HRTF"></button>
+    </div>
+    <div class="row">
+      <button class="btn" id="hrPick">HRTFファイルを選ぶ</button>
+      <button class="btn" id="hrClear">外す</button>
+    </div>
+    <input type="file" id="hrFile" hidden>
+    <canvas class="curve" id="hrCv" role="img" aria-label="HRTF補正の周波数特性 (左耳と右耳)"></canvas>
+    <div class="legend"><span><i style="background:var(--wall)"></i>左耳</span><span><i style="background:var(--floor)"></i>右耳</span><span>点線：耳のくぼみ</span></div>
+    <div id="hrAmtBox"></div>
+    <label class="chk"><input type="checkbox" id="hrSync" checked><span>耳のくぼみの位置を、空間モードの反射に合わせる<br><span class="hint" id="hrNotchTxt">ファイルを読み込むと、くぼみの位置が出ます。</span></span></label>
+    <details>
+      <summary>HRTFのテキストを貼り付けて読み込む</summary>
+      <textarea id="hrText" spellcheck="false" placeholder="Preamp: -2.0 dB&#10;Channel: L&#10;GraphicEQ: 20 0.0; 1000 0.5; 8000 -6.0; 19897 -1.9&#10;Channel: R&#10;GraphicEQ: 20 0.0; 1000 0.4; 8300 -7.0; 19897 -2.0"></textarea>
+      <button class="btn small" id="hrPaste">貼り付けた内容を読み込む</button>
+    </details>
+    <div class="hint">ear-hrtf-lab などで作った、「Channel: L / R」と「GraphicEQ:」の行のテキストを読み込みます。左右の耳ごとに、位相が遅れない(最小位相の)フィルタにして、EQのあとに掛けます。方向ごとの測定データ(SOFAファイルなど)には対応していません。</div>
   </section>
 
   <section class="group" aria-label="出力">
@@ -393,11 +462,12 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
     const a = [(A + 1) + (A - 1) * cw + sq, -2 * ((A - 1) + (A + 1) * cw), (A + 1) + (A - 1) * cw - sq];
     return { b: [b[0] / a[0], b[1] / a[0], b[2] / a[0]], a: [1.0, a[1] / a[0], a[2] / a[0]] };
   }
-  function designBauerV3(depth, cutoff, angleDeg, fs, head = 1.0, centre = 1.0, lfItd = 1.5, headRadius = 0.0875) {
+  function designBauerV3(depth, cutoff, angleDeg, fs, head = 1.0, centre = 1.0, lfItd = 1.5, headRadius = 0.0875, lpQ = 0.5) {
     angleDeg = clip(angleDeg, 20.0, 90.0);
     depth = clip(depth, 0.0, 1.2);
+    headRadius = clip(headRadius, 0.05, 0.20);
     const feed = BAUER_FEED_MAX * depth;
-    const lp = designBauerLowpass(cutoff, fs);
+    const lp = designBauerLowpass(cutoff, fs, clip(lpQ, 0.3, 1.0));
     const cp = designBauerCompShelf(0.5 * cutoff, -20.0 * Math.log10(1.0 + feed), fs);
     const theta = angleDeg * PI / 180;
     const itd = Math.max(2.0, headRadius / 343.0 * (theta + Math.sin(theta)) * fs);
@@ -417,8 +487,8 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
       this.feedNow = 0; this.feedStep = 0; this.feedLeft = 0;
       this.set(0.5, 500, 30, 1, 1, 1.5, true);
     }
-    set(depth, cutoff, angle, head, centre, lfItd, immediate) {
-      const d = designBauerV3(depth, cutoff, angle, this.fs, head, centre, lfItd);
+    set(depth, cutoff, angle, head, centre, lfItd, immediate, lpQ, radius) {
+      const d = designBauerV3(depth, cutoff, angle, this.fs, head, centre, lfItd, radius == null ? 0.0875 : radius, lpQ == null ? 0.5 : lpQ);
       this.d = d;
       const di = Math.floor(d.itdF), fr = d.itdF - di, dd = fr + 1.0;
       this.di = di;
@@ -1966,11 +2036,43 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
     }
   }
 
+  // ---- bs2b-style crossfeed (the "bs2b式" of the crossfeed player): a first-order low-pass cross path of gain g, the direct path
+  // with the matching high-shelf, and an extra delay of the cross path.  Made from the public description of bs2b, not its code. ----
+  class Bs2b {
+    constructor(fs) { this.fs = fs; this.n = 4096; this.bl = new Float64Array(this.n); this.br = new Float64Array(this.n); this.p = 0; this.out = new Float64Array(2); this.z = new Float64Array(8); this.set(700, 4.5, 0); }
+    set(fc, feedDb, delayMs) {
+      fc = clip(fc, 50, 0.45 * this.fs); feedDb = clip(feedDb, 0.5, 30);
+      const r = Math.pow(10, -feedDb / 20), g = r / (1 + r), K = Math.tan(PI * fc / this.fs), kb = K / (1 + K), a1 = (K - 1) / (1 + K);
+      this.xb = g * kb; this.db0 = 1 - g * kb; this.db1 = a1 - g * kb; this.a1 = a1;
+      this.dl = clip(delayMs, 0, 20) * 1e-3 * this.fs;
+    }
+    reset() { this.bl.fill(0); this.br.fill(0); this.z.fill(0); this.p = 0; }
+    step(xl, xr) {
+      const z = this.z, a1 = this.a1, n = this.n, p = this.p;
+      // cross paths: LP(x) (b = [xb, xb])
+      const cl = this.xb * xl + z[0]; z[0] = this.xb * xl - a1 * cl;
+      const cr = this.xb * xr + z[1]; z[1] = this.xb * xr - a1 * cr;
+      // direct paths
+      const dl = this.db0 * xl + z[2]; z[2] = this.db1 * xl - a1 * dl;
+      const dr = this.db0 * xr + z[3]; z[3] = this.db1 * xr - a1 * dr;
+      this.bl[p] = cl; this.br[p] = cr;
+      let yl = cl, yr = cr;
+      if (this.dl > 0) {
+        const di = Math.floor(this.dl), fr = this.dl - di, i0 = (p - di + n) % n, i1 = (p - di - 1 + n) % n;
+        yl = this.bl[i0] * (1 - fr) + this.bl[i1] * fr; yr = this.br[i0] * (1 - fr) + this.br[i1] * fr;
+      }
+      this.out[0] = dl + yr; this.out[1] = dr + yl;                 // the left feed leaks into the right ear
+      this.p = (p + 1) % n;
+      return this.out;
+    }
+  }
+
   // ------------------------------------------------------------------------------------------------
   // Whole engine: Bauer v3 crossfeed + Pro 11 v4, "crossfeed + space"
   // ------------------------------------------------------------------------------------------------
   const ENGINE_DEFAULTS = {
-    bauerOn: true, bauer_depth: 0.5, bauer_fc: 500, bauer_angle: 30, bauer_head: 1, bauer_centre: 1, bauer_lf_itd: 1.5,
+    bauerOn: true, bauer_depth: 0.5, bauer_fc: 500, bauer_angle: 30, bauer_head: 1, bauer_centre: 1, bauer_lf_itd: 1.5, bauer_q: 0.5, bauer_radius: 0.0875,
+    bauer_method: 'exo', bs2b_fc: 700, bs2b_feed_db: 4.5, bs2b_delay_ms: 0,
     spatialOn: true, bypass: false, gain_db: 0,
   };
 
@@ -2588,7 +2690,7 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
       };
       for (const k of Object.keys(D)) c[k] = D[k];
       for (const k of Object.keys(c)) if (/^air[3-8]_/.test(k) && prm[k] != null) c[k] = num(k, c[k]);
-      c.air4_notch_hz = 0.0;
+      c.air4_notch_hz = num('air4_notch_hz', 0.0);
       for (const k of A8_CH_KEYS) c[k] = chValue(prm, k, k in D ? D[k] : num(k, A8_CORE_DEFAULTS[k]));
       return c;
     }
@@ -2828,6 +2930,527 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
     }
   }
 
+  // ======================================================================================================================
+  // EQ file (Equalizer APO / AutoEq text: Preamp, Filter, GraphicEQ) and personal HRTF correction profile (ear-hrtf-lab text:
+  // Channel L / R + GraphicEQ, hrtf_profile.py) -> a last stage after every mode.  The design (biquads, minimum-phase FIRs) is
+  // done where the file is loaded (designPost, main thread) and only the finished numbers go to the audio thread (setPost).
+  // ======================================================================================================================
+  const EQ_TYPE = { PK: 'PK', PEQ: 'PK', LS: 'LS', LSC: 'LS', LSQ: 'LS', HS: 'HS', HSC: 'HS', HSQ: 'HS', LP: 'LP', LPQ: 'LP', HP: 'HP', HPQ: 'HP', BP: 'BP', NO: 'NO', AP: 'AP' };
+  const eqNum = (s) => { s = String(s); return parseFloat(/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(s) ? s.replace(/,/g, '') : s.replace(',', '.')); };
+  function parseEQ(text) {
+    const eq = { pre: 0, hasPre: false, filters: [], graphic: null, notes: [] };
+    const lines = String(text).replace(/\r/g, '').split('\n'), ignored = new Set();
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line || line[0] === '#' || line.startsWith('//')) continue;
+      let m;
+      if ((m = /^preamp\s*:\s*([-+]?[\d.,]+)\s*db/i.exec(line))) { eq.pre = eqNum(m[1]); eq.hasPre = true; continue; }
+      if (/^graphiceq\s*:/i.test(line)) {
+        const pts = [], re = /([\d.]+)\s+([-+]?[\d.]+)/g, body = line.replace(/^graphiceq\s*:/i, '');
+        let mm; while ((mm = re.exec(body))) pts.push([parseFloat(mm[1]), parseFloat(mm[2])]);
+        pts.sort((a, b) => a[0] - b[0]);
+        if (pts.length >= 2) eq.graphic = pts;
+        continue;
+      }
+      if ((m = /^filter\s*\d*\s*:\s*(.*)$/i.exec(line))) {
+        const mt = /^(on|off)\s+([a-z]+)\b(.*)$/i.exec(m[1].trim());
+        if (!mt) { eq.notes.push('読めない行：' + line.slice(0, 40)); continue; }
+        if (mt[1].toLowerCase() === 'off') continue;
+        const type = EQ_TYPE[mt[2].toUpperCase()];
+        if (!type) { eq.notes.push('未対応の種類：' + mt[2]); continue; }
+        const rest = mt[3], fc = /fc\s+([\d.,]+)\s*(k?)hz/i.exec(rest) || /fc\s+([\d.,]+)/i.exec(rest);
+        if (!fc) { eq.notes.push('周波数がない行：' + line.slice(0, 40)); continue; }
+        let f = eqNum(fc[1]); if (fc[2] && fc[2].toLowerCase() === 'k') f *= 1000;
+        const g = /gain\s+([-+]?[\d.,]+)/i.exec(rest), q = /\bq\s+([\d.,]+)/i.exec(rest), bw = /bw\s+oct\s+([\d.,]+)/i.exec(rest);
+        const flt = { type, fc: f, gain: g ? eqNum(g[1]) : 0, q: q ? eqNum(q[1]) : 0.7071 };
+        if (bw && !q) flt.bw = eqNum(bw[1]);
+        if (!(flt.fc > 0) || !isFinite(flt.gain) || !(flt.q > 0)) { eq.notes.push('数値を読めない行：' + line.slice(0, 40)); continue; }
+        eq.filters.push(flt); continue;
+      }
+      if ((m = /^(channel|device|include|stage|copy|delay|eq)\s*:/i.exec(line))) ignored.add(m[1]);
+    }
+    if (ignored.size) eq.notes.push('無視した行：' + [...ignored].join('、') + '（左右は同じEQで処理します）');
+    return eq;
+  }
+  function eqFilterCoefs(f, fs) {
+    if (!(f.fc > 0) || f.fc >= fs * 0.49) return null;
+    const w0 = 2 * PI * f.fc / fs, c = Math.cos(w0), s = Math.sin(w0);
+    let Q = f.q; if (f.bw) Q = 1 / (2 * Math.sinh(Math.LN2 / 2 * f.bw * w0 / s));
+    const al = s / (2 * Q), A = Math.pow(10, f.gain / 40);
+    let b0, b1, b2, a0, a1, a2;
+    switch (f.type) {
+      case 'PK': b0 = 1 + al * A; b1 = -2 * c; b2 = 1 - al * A; a0 = 1 + al / A; a1 = -2 * c; a2 = 1 - al / A; break;
+      case 'LS': { const r = 2 * Math.sqrt(A) * al;
+        b0 = A * ((A + 1) - (A - 1) * c + r); b1 = 2 * A * ((A - 1) - (A + 1) * c); b2 = A * ((A + 1) - (A - 1) * c - r);
+        a0 = (A + 1) + (A - 1) * c + r; a1 = -2 * ((A - 1) + (A + 1) * c); a2 = (A + 1) + (A - 1) * c - r; break; }
+      case 'HS': { const r = 2 * Math.sqrt(A) * al;
+        b0 = A * ((A + 1) + (A - 1) * c + r); b1 = -2 * A * ((A - 1) + (A + 1) * c); b2 = A * ((A + 1) + (A - 1) * c - r);
+        a0 = (A + 1) - (A - 1) * c + r; a1 = 2 * ((A - 1) - (A + 1) * c); a2 = (A + 1) - (A - 1) * c - r; break; }
+      case 'LP': b0 = (1 - c) / 2; b1 = 1 - c; b2 = b0; a0 = 1 + al; a1 = -2 * c; a2 = 1 - al; break;
+      case 'HP': b0 = (1 + c) / 2; b1 = -(1 + c); b2 = b0; a0 = 1 + al; a1 = -2 * c; a2 = 1 - al; break;
+      case 'BP': b0 = al; b1 = 0; b2 = -al; a0 = 1 + al; a1 = -2 * c; a2 = 1 - al; break;
+      case 'NO': b0 = 1; b1 = -2 * c; b2 = 1; a0 = 1 + al; a1 = -2 * c; a2 = 1 - al; break;
+      case 'AP': b0 = 1 - al; b1 = -2 * c; b2 = 1 + al; a0 = 1 + al; a1 = -2 * c; a2 = 1 - al; break;
+      default: return null;
+    }
+    return [b0 / a0, b1 / a0, b2 / a0, 1.0, a1 / a0, a2 / a0];          // sos row (Cascade layout)
+  }
+  function eqMagDb(row, f, fs) {
+    const w = 2 * PI * f / fs, c1 = Math.cos(w), s1 = Math.sin(w), c2 = Math.cos(2 * w), s2 = Math.sin(2 * w);
+    const nr = row[0] + row[1] * c1 + row[2] * c2, ni = -(row[1] * s1 + row[2] * s2), dr = 1 + row[4] * c1 + row[5] * c2, di = -(row[4] * s1 + row[5] * s2);
+    return 10 * Math.log10((nr * nr + ni * ni) / (dr * dr + di * di) + 1e-30);
+  }
+  function eqGraphicDbAt(pts, f) {
+    if (f <= pts[0][0]) return pts[0][1];
+    const L = pts.length; if (f >= pts[L - 1][0]) return pts[L - 1][1];
+    let lo = 0, hi = L - 1;
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (pts[mid][0] <= f) lo = mid; else hi = mid; }
+    const t = Math.log(f / pts[lo][0]) / Math.log(pts[hi][0] / pts[lo][0]);
+    return pts[lo][1] + t * (pts[hi][1] - pts[lo][1]);
+  }
+  /** response of the EQ file in dB, without the preamp */
+  function eqDb(eq, f, fs) {
+    let d = 0;
+    for (const flt of eq.filters) { const r = eqFilterCoefs(flt, fs); if (r) d += eqMagDb(r, f, fs); }
+    if (eq.graphic) d += eqGraphicDbAt(eq.graphic, f);
+    return d;
+  }
+  const EQ_GRID = Array.from({ length: 300 }, (_, i) => 20 * Math.pow(1000, i / 299));
+  function eqBoost(eq, fs) { let m = 0; for (const f of EQ_GRID) m = Math.max(m, eqDb(eq, f, fs)); return m; }
+  /** the preamp that is actually used: the file's own, or (none in the file) the boost taken away; 0 when switched off */
+  function eqPreDb(eq, usePre, fs) { if (!usePre) return 0; return eq.hasPre ? eq.pre : -Math.ceil(eqBoost(eq, fs) * 10) / 10; }
+
+  // ---- HRTF profile ----
+  function hrPairs(text) {
+    const nums = text.match(/[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?/g) || [], f = [], g = [];
+    for (let i = 0; i + 1 < nums.length; i += 2) { f.push(+nums[i]); g.push(+nums[i + 1]); }
+    return [f, g];
+  }
+  function hrParse(text, name) {
+    const lines = String(text).split(/\r?\n/);
+    let preamp = 0, targets = ['L', 'R'], saw = false; const got = {};
+    const after = (s) => { const i = s.indexOf(':'); return i < 0 ? s : s.slice(i + 1); };
+    for (const raw of lines) {
+      const line = raw.trim(); if (!line || line[0] === '#') continue;
+      const low = line.toLowerCase();
+      if (low.startsWith('preamp')) { const m = after(line).match(/[-+]?\d*\.?\d+/); if (m) preamp = +m[0]; }
+      else if (low.startsWith('channel')) {
+        const tok = new Set(after(line).toUpperCase().match(/[A-Z]+/g) || []);
+        if (tok.has('ALL') || !tok.size) targets = ['L', 'R']; else { const t = ['L', 'R'].filter((x) => tok.has(x)); targets = t.length ? t : ['L', 'R']; }
+      } else if (low.startsWith('graphiceq')) {
+        const [f, g] = hrPairs(after(line)); saw = true;
+        if (f.length >= 2) for (const t of targets) got[t] = [f, g];
+      }
+    }
+    if (!saw) {
+      const f = [], g = [];
+      for (const raw of lines) { if (raw.trim()[0] === '#' || raw.indexOf(':') >= 0) continue; const [a, b] = hrPairs(raw); if (a.length) { f.push(a[0]); g.push(b[0]); } }
+      if (f.length >= 2) { got.L = [f, g]; got.R = [f.slice(), g.slice()]; }
+    }
+    if (!got.L && !got.R) throw new Error('周波数と音量の組が見つかりませんでした');
+    if (!got.L) got.L = got.R; if (!got.R) got.R = got.L;
+    for (const ch of ['L', 'R']) {
+      const [f, g] = got[ch], idx = f.map((_, i) => i).sort((a, b) => f[a] - f[b] || a - b), ff = [], gg = [];
+      for (const i of idx) { if (!ff.length || f[i] > ff[ff.length - 1]) { ff.push(f[i]); gg.push(g[i]); } }
+      got[ch] = [ff, gg];
+    }
+    return { curves: got, preamp, name: name || '' };
+  }
+  function hrInterp(x, f, g) {                       // dB over log frequency, flat outside the listed range
+    const lx = Math.log(Math.max(x, 1)), n = f.length;
+    if (lx <= Math.log(Math.max(f[0], 1))) return g[0];
+    if (lx >= Math.log(Math.max(f[n - 1], 1))) return g[n - 1];
+    let lo = 0, hi = n - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (Math.log(Math.max(f[m], 1)) <= lx) lo = m; else hi = m; }
+    const l0 = Math.log(Math.max(f[lo], 1)), l1 = Math.log(Math.max(f[hi], 1));
+    return l1 === l0 ? g[lo] : g[lo] + (g[hi] - g[lo]) * (lx - l0) / (l1 - l0);
+  }
+  const hrDb = (P, ch, f, amount) => (hrInterp(f, P.curves[ch][0], P.curves[ch][1]) + P.preamp) * amount;
+  function hrNotchOf(P, lo = 5000, hi = 11000, minDepth = 3) {      // the main pinna notch (Hz) of a frontal profile, or 0
+    const N = 1200, fq = [], g = [];
+    for (let i = 0; i < N; i++) { const f = 1000 * Math.pow(18, i / (N - 1)); fq.push(f); g.push(0.5 * (hrInterp(f, P.curves.L[0], P.curves.L[1]) + hrInterp(f, P.curves.R[0], P.curves.R[1]))); }
+    const w = Math.max(3, Math.round(N * (Math.log(2.8) / Math.log(18)))), pw = w >> 1, pad = [];
+    for (let i = 0; i < pw; i++) pad.push(g[0]); for (const v of g) pad.push(v); for (let i = 0; i < pw; i++) pad.push(g[N - 1]);
+    const pre = [0]; for (const v of pad) pre.push(pre[pre.length - 1] + v);
+    let best = -1, bd = 1e9;
+    for (let i = 0; i < N; i++) { if (fq[i] < lo || fq[i] > hi) continue; const d = g[i] - (pre[i + w] - pre[i]) / w; if (d < bd) { bd = d; best = i; } }
+    return best < 0 || bd > -minDepth ? 0 : fq[best];
+  }
+  /** minimum-phase FIR (cepstral folding) of a magnitude given in dB as a function of frequency */
+  function minPhaseFirDb(dbAt, fs, nTaps, nfft) {
+    const re = new Float64Array(nfft), im = new Float64Array(nfft), half = nfft >> 1;
+    for (let k = 0; k <= half; k++) { const lm = Math.log(Math.max(Math.pow(10, dbAt(k * fs / nfft) / 20), 1e-6)); re[k] = lm; if (k > 0 && k < half) re[nfft - k] = lm; }
+    fftC(re, im, true);
+    for (let i = 0; i < nfft; i++) { const w = i === 0 || i === half ? 1 : (i < half ? 2 : 0); re[i] *= w; im[i] = 0; }
+    fftC(re, im, false);
+    for (let i = 0; i < nfft; i++) { const m = Math.exp(re[i]), a = im[i]; re[i] = m * Math.cos(a); im[i] = m * Math.sin(a); }
+    fftC(re, im, true);
+    const h = new Float64Array(nTaps); for (let i = 0; i < nTaps; i++) h[i] = re[i];
+    const tail = Math.max(8, nTaps >> 3);
+    for (let i = 0; i < tail; i++) h[nTaps - tail + i] *= 0.5 * (1 + Math.cos(PI * i / tail));
+    return h;
+  }
+  function hrDesign(P, fs, amount) {
+    const nTaps = Math.max(1024, Math.round(fs * 0.0215)); let nfft = 1; while (nfft < nTaps * 8) nfft <<= 1;
+    return ['L', 'R'].map((ch) => minPhaseFirDb((f) => hrDb(P, ch, f, amount), fs, nTaps, nfft));
+  }
+  /**
+   * o = { eq, eqOn, usePre, eqPreOverride (dB, optional), hr, hrOn, hrAmt (0..1.5) }  ->  what the audio thread needs
+   *   { eq: { pre, sos, fir } | null, hr: { l, r } | null }
+   */
+  function designPost(o, fs) {
+    const out = { eq: null, hr: null };
+    if (o.eq && o.eqOn) {
+      const eq = o.eq, sos = [];
+      for (const f of eq.filters) { const r = eqFilterCoefs(f, fs); if (r) sos.push(r); }
+      let fir = null;
+      if (eq.graphic) { const nTaps = Math.max(1024, Math.round(fs * 0.0425)); let nfft = 1; while (nfft < nTaps * 8) nfft <<= 1; fir = minPhaseFirDb((f) => eqGraphicDbAt(eq.graphic, f), fs, nTaps, nfft); }
+      const pre = o.eqPreOverride != null ? o.eqPreOverride : eqPreDb(eq, o.usePre !== false, fs);
+      if (sos.length || fir || pre !== 0) out.eq = { pre: Math.pow(10, pre / 20), sos, fir };
+    }
+    if (o.hr && o.hrOn && o.hrAmt > 0) { const [l, r] = hrDesign(o.hr, fs, o.hrAmt); out.hr = { l, r }; }
+    return out;
+  }
+
+  // ---- uniform-partition FFT convolution (block 128: no latency on top of the FIR itself) ----
+  const PC_B = 128, PC_N = 256;
+  class PConv {
+    constructor(h) {
+      const B = PC_B, N = PC_N, H = N / 2 + 1, P = Math.max(1, Math.ceil(h.length / B));
+      this.P = P; this.idx = 0;
+      this.Fr = []; this.Fi = []; this.Xr = []; this.Xi = [];
+      const re = new Float64Array(N), im = new Float64Array(N);
+      for (let p = 0; p < P; p++) {
+        re.fill(0); im.fill(0);
+        for (let j = 0; j < B; j++) { const k = p * B + j; if (k < h.length) re[j] = h[k]; }
+        fftC(re, im, false);
+        this.Fr.push(Float64Array.from(re.subarray(0, H))); this.Fi.push(Float64Array.from(im.subarray(0, H)));
+        this.Xr.push(new Float64Array(H)); this.Xi.push(new Float64Array(H));
+      }
+      this.prev = new Float64Array(B); this.re = new Float64Array(N); this.im = new Float64Array(N);
+      this.yr = new Float64Array(H); this.yi = new Float64Array(H);
+    }
+    /** x -> y, n a multiple of 128 */
+    run(x, y, n) {
+      const B = PC_B, N = PC_N, H = N / 2 + 1, P = this.P, re = this.re, im = this.im, yr = this.yr, yi = this.yi;
+      for (let o = 0; o + B <= n; o += B) {
+        for (let j = 0; j < B; j++) { re[j] = this.prev[j]; re[B + j] = x[o + j]; this.prev[j] = x[o + j]; }
+        im.fill(0); fftC(re, im, false);
+        const ix = this.idx; this.Xr[ix].set(re.subarray(0, H)); this.Xi[ix].set(im.subarray(0, H));
+        yr.fill(0); yi.fill(0);
+        for (let p = 0; p < P; p++) {
+          const q = (ix - p + P) % P, xr = this.Xr[q], xi = this.Xi[q], fr = this.Fr[p], fi = this.Fi[p];
+          for (let k = 0; k < H; k++) { yr[k] += xr[k] * fr[k] - xi[k] * fi[k]; yi[k] += xr[k] * fi[k] + xi[k] * fr[k]; }
+        }
+        this.idx = (ix + 1) % P;
+        re[0] = yr[0]; im[0] = 0; re[B] = yr[B]; im[B] = 0;
+        for (let k = 1; k < B; k++) { re[k] = yr[k]; im[k] = yi[k]; re[N - k] = yr[k]; im[N - k] = -yi[k]; }
+        fftC(re, im, true);
+        for (let j = 0; j < B; j++) y[o + j] = re[B + j];
+      }
+    }
+  }
+  class PostUnit {                                   // one EQ or HRTF unit: input two channels -> output two channels
+    constructor(kind, d) {
+      this.kind = kind;
+      if (kind === 'eq') {
+        this.pre = d.pre; this.cl = new Cascade(d.sos); this.cr = new Cascade(d.sos);
+        this.fl = d.fir ? new PConv(d.fir) : null; this.fr = d.fir ? new PConv(d.fir) : null;
+        this.n = d.sos.length;
+      } else { this.fl = new PConv(d.l); this.fr = new PConv(d.r); }
+      this.ta = new Float64Array(0); this.tb = new Float64Array(0);
+    }
+    run(xl, xr, yl, yr, n) {
+      if (this.kind === 'eq') {
+        if (this.ta.length < n) { this.ta = new Float64Array(n); this.tb = new Float64Array(n); }
+        const ta = this.ta, tb = this.tb, pre = this.pre, cl = this.cl, cr = this.cr, hasC = this.n > 0;
+        for (let i = 0; i < n; i++) { const a = xl[i] * pre, b = xr[i] * pre; ta[i] = hasC ? cl.tick(a) : a; tb[i] = hasC ? cr.tick(b) : b; }
+        if (this.fl) { this.fl.run(ta, yl, n); this.fr.run(tb, yr, n); } else { for (let i = 0; i < n; i++) { yl[i] = ta[i]; yr[i] = tb[i]; } }
+      } else { this.fl.run(xl, yl, n); this.fr.run(xr, yr, n); }
+    }
+  }
+  class PostStage {                                  // a unit that can be swapped for another with a short cross-fade
+    constructor(kind, fs) { this.kind = kind; this.fs = fs; this.cur = null; this.old = null; this.left = 0; this.len = 1024; this.have = false; }
+    set(d) {
+      if (!d && !this.cur) return;
+      this.old = this.cur; this.cur = d ? new PostUnit(this.kind, d) : null;
+      this.left = this.old || this.cur ? this.len : 0;
+      if (!this.have) { this.old = null; this.left = 0; }                 // very first design: no cross-fade from nothing
+      this.have = true;
+    }
+    get active() { return !!(this.cur || this.old); }
+  }
+  class PostChain {
+    constructor(fs) {
+      this.fs = fs; this.eq = new PostStage('eq', fs); this.hr = new PostStage('hr', fs);
+      this.xl = new Float64Array(0); this.xr = new Float64Array(0); this.al = new Float64Array(0); this.ar = new Float64Array(0);
+      this.bl = new Float64Array(0); this.br = new Float64Array(0); this.mix = 1;
+    }
+    set(spec) { this.eq.set(spec && spec.eq); this.hr.set(spec && spec.hr); }
+    get active() { return this.eq.active || this.hr.active; }
+    _stage(st, l, r, n, ol, orr) {             // l,r (Float64 copies) -> ol,orr
+      const al = this.al, ar = this.ar, bl = this.bl, br = this.br;
+      if (st.cur) st.cur.run(l, r, ol, orr, n); else { for (let i = 0; i < n; i++) { ol[i] = l[i]; orr[i] = r[i]; } }
+      if (st.old && st.left > 0) {
+        st.old.run(l, r, al, ar, n);
+        const len = st.len;
+        for (let i = 0; i < n; i++) { const w = Math.min(1, (len - st.left + i + 1) / len); ol[i] = al[i] * (1 - w) + ol[i] * w; orr[i] = ar[i] * (1 - w) + orr[i] * w; }
+        st.left = Math.max(0, st.left - n); if (st.left === 0) st.old = null;
+      }
+    }
+    /** in place on outL/outR (n a multiple of 128); fxMix: 1 = processed, 0 = original (bypass) */
+    process(outL, outR, n, fxMix) {
+      if (!this.active) { this.mix = fxMix; return; }
+      if (this.xl.length < n) { for (const k of ['xl', 'xr', 'al', 'ar', 'bl', 'br']) this[k] = new Float64Array(n); }
+      const xl = this.xl, xr = this.xr, al = this.al, ar = this.ar;
+      for (let i = 0; i < n; i++) { xl[i] = outL[i]; xr[i] = outR[i]; }
+      // stage 1 (EQ): xl,xr -> bl,br ; stage 2 (HRTF): bl,br -> _sl,_sr
+      const bl = this.bl, br = this.br;
+      this._stage(this.eq, xl, xr, n, bl, br);
+      // HRTF reads bl/br; its output goes to al/ar via a scratch copy so that _stage can use al/ar for the old unit
+      if (!this._sl || this._sl.length < n) { this._sl = new Float64Array(n); this._sr = new Float64Array(n); }
+      this._stage(this.hr, bl, br, n, this._sl, this._sr);
+      const m0 = this.mix, m1 = fxMix, sl = this._sl, sr = this._sr;
+      if (m0 === 1 && m1 === 1) { for (let i = 0; i < n; i++) { outL[i] = sl[i]; outR[i] = sr[i]; } }
+      else for (let i = 0; i < n; i++) { const m = m0 + (m1 - m0) * (i + 1) / n; outL[i] = xl[i] + m * (sl[i] - xl[i]); outR[i] = xr[i] + m * (sr[i] - xr[i]); }
+      this.mix = m1;
+    }
+  }
+
+  // ======================================================================================================================
+  // Pro 21.0a (spatial_pro21_core.py: Pro21RoomState): two virtual loudspeakers in a rectangular room, image-source reflections
+  // (first + second order, 48 paths), lateral-angle Woodworth ITD, far-ear head shadow, 4-band wall reflection, air absorption,
+  // optional loudspeaker directivity; the late field is the Pro 11 v3 one (high-pass, RT60 FDN, coherence).  It returns the
+  // WET signal only; the engine adds it to the crossfed direct sound like the PC (exospace_pro21 branch of main_engine.py).
+  // ======================================================================================================================
+  const P21_EDGES = [500.0, 3000.0, 8000.0], P21_SURF = ['floor', 'ceiling', 'left', 'right', 'front', 'back'];
+  const P21_REFL = {
+    floor: [0.78, 0.72, 0.58, 0.42], ceiling: [0.80, 0.74, 0.60, 0.44], left: [0.84, 0.78, 0.62, 0.43],
+    right: [0.84, 0.78, 0.62, 0.43], front: [0.80, 0.73, 0.57, 0.39], back: [0.78, 0.70, 0.53, 0.35],
+  };
+  const P21_DIR_DB90 = [0.0, 1.5, 6.0, 12.0], P21_DIR_MAX = 2.25, P21_MAX_EV = 48, P21_AXIS = [2, 2, 0, 0, 1, 1];
+  const P21_DEFAULTS = {
+    p21_room_width: 5.0, p21_room_front: 3.5, p21_room_back: 4.0, p21_room_height: 2.6, p21_listener_x: 0.0, p21_listener_y: 0.0,
+    p21_listener_z: 1.2, p21_listener_yaw_deg: 0.0, p21_head_radius: 0.0875, p21_speaker_distance: 1.2, p21_speaker_azimuth_deg: 30.0,
+    p21_speaker_height: 1.2, p21_order: 2, p21_er_db: -17.9, p21_head_shadow: 1.0, p21_elevation_strength: 0.25,
+    p21_air_db_per_m: [0.00, 0.01, 0.04, 0.10], p21_dir_on: false, p21_dir_strength: 1.0,
+  };
+  function p21Cfg(prm) {                       // the settings of one design: the PC's defaults + what the caller gives (mat_dir_* are the bridge's directivity keys)
+    const c = Object.assign({}, P21_DEFAULTS);
+    for (const k of Object.keys(P21_DEFAULTS)) if (prm && prm[k] !== undefined && prm[k] !== null) c[k] = prm[k];
+    if (prm && prm.mat_dir_on !== undefined) c.p21_dir_on = !!prm.mat_dir_on;
+    if (prm && prm.mat_dir_strength !== undefined) c.p21_dir_strength = Number(prm.mat_dir_strength);
+    for (const s of P21_SURF) { const v = prm && prm['p21_reflect_' + s]; c['p21_reflect_' + s] = Array.isArray(v) && v.length === 4 ? v.map(Number) : P21_REFL[s].slice(); }
+    return c;
+  }
+  function p21Fin(c, k, d) { const v = Number(c[k]); const x = c[k] === undefined || c[k] === null || !Number.isFinite(v) ? d : v; if (!Number.isFinite(x)) throw new Error(k + ' must be finite'); return x; }
+  function p21Image(s, i, r) {
+    const [x, y, z] = s;
+    switch (i) {
+      case 0: return [x, y, -z]; case 1: return [x, y, 2.0 * r.height - z];
+      case 2: return [-r.width - x, y, z]; case 3: return [r.width - x, y, z];
+      case 4: return [x, 2.0 * r.front - y, z]; default: return [x, -2.0 * r.back - y, z];
+    }
+  }
+  const p21Norm = (v) => Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+  function p21Geometry(c) {
+    const room = { width: p21Fin(c, 'p21_room_width', 5.0), front: p21Fin(c, 'p21_room_front', 3.5), back: p21Fin(c, 'p21_room_back', 4.0), height: p21Fin(c, 'p21_room_height', 2.6) };
+    if (Math.min(room.width, room.front, room.back, room.height) <= 0.25) throw new Error('部屋の寸法は 0.25 m より大きくしてください');
+    const lx = p21Fin(c, 'p21_listener_x', 0.0), ly = p21Fin(c, 'p21_listener_y', 0.0), lz = p21Fin(c, 'p21_listener_z', 1.2);
+    const yaw = p21Fin(c, 'p21_listener_yaw_deg', 0.0) * PI / 180, distance = p21Fin(c, 'p21_speaker_distance', 1.2);
+    const spAz = Math.abs(p21Fin(c, 'p21_speaker_azimuth_deg', 30.0)), spZ = p21Fin(c, 'p21_speaker_height', lz), hr = p21Fin(c, 'p21_head_radius', HEAD_RADIUS_M);
+    if (distance <= 0.1 || !(spAz >= 0.0 && spAz <= 80.0)) throw new Error('スピーカーまでの距離は 0.1 m より大きく、角度は 0〜80° にしてください');
+    if (!(hr > 0.05 && hr < 0.20)) throw new Error('頭の半径は 0.05〜0.20 m にしてください');
+    const lis = [lx, ly, lz];
+    if (!(-room.width / 2 < lx && lx < room.width / 2)) throw new Error('聴き手が部屋の幅の外です');
+    if (!(-room.back < ly && ly < room.front)) throw new Error('聴き手が部屋の奥行の外です');
+    if (!(0.0 < lz && lz < room.height)) throw new Error('聴き手が部屋の高さの外です');
+    const order = Math.round(p21Fin(c, 'p21_order', 2.0));
+    if (order !== 1 && order !== 2) throw new Error('反射の次数は 1 か 2 です');
+    const events = [], cy = Math.cos(yaw), sy = Math.sin(yaw);
+    [-spAz, +spAz].forEach((azDeg, si) => {
+      const lxs = distance * Math.sin(azDeg * PI / 180), lys = distance * Math.cos(azDeg * PI / 180);
+      const src = [lx + (cy * lxs + sy * lys), ly + (-sy * lxs + cy * lys), spZ];
+      const directPath = p21Norm([src[0] - lis[0], src[1] - lis[1], src[2] - lis[2]]);
+      if (!(-room.width / 2 < src[0] && src[0] < room.width / 2)) throw new Error('仮想スピーカーが部屋の幅の外です');
+      if (!(-room.back < src[1] && src[1] < room.front)) throw new Error('仮想スピーカーが部屋の奥行の外です');
+      if (!(0.0 < src[2] && src[2] < room.height)) throw new Error('仮想スピーカーが部屋の高さの外です');
+      const seqs = []; for (let i = 0; i < 6; i++) seqs.push([i]);
+      if (order >= 2) {
+        const seen = new Set();
+        for (let a = 0; a < 6; a++) for (let b = 0; b < 6; b++) {
+          if (a === b) continue;
+          const img = p21Image(p21Image(src, a, room), b, room), key = img.map((v) => Math.round(v * 1e6)).join(',');
+          if (seen.has(key)) continue; seen.add(key); seqs.push([a, b]);
+        }
+      }
+      for (const seq of seqs) {
+        let image = src; for (const q of seq) image = p21Image(image, q, room);
+        const vec = [image[0] - lis[0], image[1] - lis[1], image[2] - lis[2]], path = p21Norm(vec);
+        const dxl = cy * vec[0] - sy * vec[1], dyl = sy * vec[0] + cy * vec[1];
+        const az = Math.atan2(dxl, dyl) * 180 / PI, el = Math.atan2(vec[2], Math.hypot(vec[0], vec[1])) * 180 / PI;
+        const baseDelay = Math.max(0.0, (path - directPath) / C_SOUND);
+        const lat = Math.asin(Math.max(-1.0, Math.min(1.0, Math.sin(az * PI / 180) * Math.cos(el * PI / 180)))), th = Math.abs(lat);
+        const itd = hr / C_SOUND * (th + Math.sin(th));
+        events.push({ source_index: si, surfaces: seq, order: seq.length, source_xyz: src, image_xyz: image, direct_path_m: directPath, reflected_path_m: path,
+          base_delay_ms: baseDelay * 1000.0, azimuth_deg: az, elevation_deg: el, itd_ms: itd * 1000.0 });
+      }
+    });
+    const idx = events.map((e, i) => i);                       // stable sort by (order, source)
+    idx.sort((a, b) => (events[a].order - events[b].order) || (events[a].source_index - events[b].source_index) || (a - b));
+    return idx.map((i) => events[i]);
+  }
+  /** a room that cannot be built -> the message, otherwise '' */
+  function pro21Check(prm) { try { p21Geometry(p21Cfg(prm)); return ''; } catch (e) { return String(e.message || e); } }
+  function pro21Events(prm) { return p21Geometry(p21Cfg(prm)); }
+
+  class Pro21 {
+    constructor(fs) {
+      this.fs = fs; this.replaces = false; this.nativeDir = true; this.block_ = true;
+      this.maxBlock = 4096; let h = 1; while (h < Math.floor(0.30 * fs) + this.maxBlock + 16) h <<= 1;
+      this.hist = h; this.mask = h - 1;
+      this.rings = [new Float64Array(h * 4), new Float64Array(h * 4)]; this.ptr = 0;
+      this.lp = P21_EDGES.map((f) => designBauerLowpass(f, fs, Math.SQRT1_2));
+      this.lz = new Float64Array(2 * 3 * 2);                                    // [ch][edge][2]
+      this.sh = new Float64Array(P21_MAX_EV * 2);
+      const E = P21_MAX_EV;
+      this.curD = new Float64Array(E * 2).fill(1); this.tgtD = new Float64Array(E * 2).fill(1);
+      this.curG = new Float64Array(E * 4); this.tgtG = new Float64Array(E * 4);
+      this.far = new Int32Array(E); this.alpha = new Float64Array(E); this.shLf = new Float64Array(E).fill(1); this.shHf = new Float64Array(E).fill(1); this.src = new Int32Array(E);
+      this.nEv = 0; this.head = 1.0; this.events = []; this.sig = null; this.processed = false;
+      this.hp = [new Cascade([butterHP2(DEFAULTS.hp_hz, fs)]), new Cascade([butterHP2(DEFAULTS.hp_hz, fs)])];
+      this.fdn = new Fdn(fs); this.levelLate = 0; this.tgtLate = 0; this.firstLate = true;
+      this.bands = new Float64Array(2 * 4 * 0); this.err = '';
+      this.o2 = new Float64Array(2);
+    }
+    set(prm, cal) {
+      const c = p21Cfg(prm);
+      const late = { dist: c.p21_speaker_distance, drr_db: prm && prm.drr_db != null ? prm.drr_db : 5.0, late_db: prm ? prm.late_db : undefined, rt_low: prm ? prm.rt_low : undefined, rt_high: prm ? prm.rt_high : undefined,
+        coh_lf: prm ? prm.coh_lf : undefined, coh_hf: prm ? prm.coh_hf : undefined, p_envelop: prm ? prm.p_envelop : undefined, p_live: prm ? prm.p_live : undefined, p_intimate: prm ? prm.p_intimate : undefined };
+      const sig = JSON.stringify([c, late, cal == null ? null : Math.round(cal * 1e9)]);
+      if (sig === this.sig) return;
+      try { this._design(c, late, cal); this.sig = sig; this.err = ''; }
+      catch (e) { this.err = String(e.message || e); this.sig = sig; }          // a room that cannot be built keeps the previous settings (as on the PC)
+    }
+    _design(c, late, cal) {
+      const fs = this.fs, events = p21Geometry(c), n = events.length;
+      const erScale = Math.pow(10, p21Fin(c, 'p21_er_db', -17.9) / 20), headS = clip(p21Fin(c, 'p21_head_shadow', 1.0), 0, 1), elevS = clip(p21Fin(c, 'p21_elevation_strength', 0.25), 0, 1);
+      const air = c.p21_air_db_per_m.map(Number);
+      if (air.length !== 4 || air.some((v) => !Number.isFinite(v) || v < 0)) throw new Error('空気吸収は 4 つの 0 以上の値です');
+      const dirOn = !!c.p21_dir_on, dirS = p21Fin(c, 'p21_dir_strength', 1.0), lis = [p21Fin(c, 'p21_listener_x', 0), p21Fin(c, 'p21_listener_y', 0), p21Fin(c, 'p21_listener_z', 1.2)];
+      const refl = P21_SURF.map((s) => { const v = c['p21_reflect_' + s]; if (v.length !== 4 || v.some((x) => !Number.isFinite(x) || x < 0 || x > 1.2)) throw new Error('壁の反射係数は 0〜1.2 です'); return v; });
+      const E = P21_MAX_EV, td = new Float64Array(E * 2).fill(1), tg = new Float64Array(E * 4), far = new Int32Array(E), alpha = new Float64Array(E), lf = new Float64Array(E).fill(1), hf = new Float64Array(E).fill(1), src = new Int32Array(E);
+      events.forEach((ev, i) => {
+        src[i] = ev.source_index;
+        const az = ev.azimuth_deg, el = ev.elevation_deg, baseMs = ev.base_delay_ms, itdMs = ev.itd_ms;
+        if (Math.sin(az * PI / 180) >= 0.0) { td[i * 2] = (baseMs + 0.5 * itdMs) * fs / 1000.0; td[i * 2 + 1] = Math.max(0.0, baseMs - 0.5 * itdMs) * fs / 1000.0; far[i] = 0; }
+        else { td[i * 2] = Math.max(0.0, baseMs - 0.5 * itdMs) * fs / 1000.0; td[i * 2 + 1] = (baseMs + 0.5 * itdMs) * fs / 1000.0; far[i] = 1; }
+        const pathGain = ev.direct_path_m / Math.max(ev.reflected_path_m, 1e-6), eNorm = Math.sin(el * PI / 180), sGain = 1.0 / Math.sqrt(2.0);
+        let dirG = [1, 1, 1, 1];
+        if (dirOn) {
+          const sxyz = ev.source_xyz; let ax = [lis[0] - sxyz[0], lis[1] - sxyz[1], lis[2] - sxyz[2]]; const an = Math.max(p21Norm(ax), 1e-9); ax = ax.map((v) => v / an);
+          let d = [lis[0] - ev.image_xyz[0], lis[1] - ev.image_xyz[1], lis[2] - ev.image_xyz[2]]; const dn = p21Norm(d);
+          if (dn < 1e-9) d = [0, 1, 0]; else { d = d.map((v) => v / dn); for (const q of ev.surfaces) d[P21_AXIS[q]] = -d[P21_AXIS[q]]; }
+          const cosT = Math.min(1, Math.max(-1, d[0] * ax[0] + d[1] * ax[1] + d[2] * ax[2])), thDeg = Math.acos(cosT) * 180 / PI, ratio = Math.min(Math.pow(thDeg / 90.0, 2), P21_DIR_MAX);
+          dirG = P21_DIR_DB90.map((v) => Math.pow(10, (-v * ratio * Math.max(0, dirS)) / 20));
+        }
+        for (let b = 0; b < 4; b++) {
+          const airG = Math.pow(10, -air[b] * ev.reflected_path_m / 20), elevDb = [0.0, 0.0, 0.75 * eNorm, 1.50 * eNorm][b] * elevS, elevG = Math.pow(10, elevDb / 20);
+          let sg = 1.0; for (const q of ev.surfaces) sg *= refl[q][b];
+          tg[i * 4 + b] = erScale * sGain * pathGain * sg * airG * elevG * dirG[b];
+        }
+        const lat = Math.abs(Math.sin(az * PI / 180)) * Math.max(0.0, Math.cos(el * PI / 180)), fc = 1500.0 - 500.0 * lat;
+        alpha[i] = Math.exp(-2.0 * PI * fc / fs); lf[i] = Math.pow(10, -1.0 * lat / 20); hf[i] = Math.pow(10, -(3.0 + 11.0 * lat) / 20);
+      });
+      let mx = 0; for (let i = 0; i < E * 2; i++) mx = Math.max(mx, td[i]);
+      if (mx >= this.hist - this.maxBlock - 4) throw new Error('この部屋では反射の遅れが長すぎます');
+      // the late field (Pro 11 v3 keys)
+      const p = normaliseParams(late), rs = rtScale(p), rtLo = p.rt_low * rs, rtHi = p.rt_high * rs, lateDb = levelsDb(p)[1];
+      const scale = cal != null ? cal : calibrationScale(rtLo, rtHi);
+      this.fdn.setDecay(rtLo, rtHi); this.fdn.setCoherence(p.coh_lf, p.coh_hf);
+      this.tgtLate = Math.pow(10, lateDb / 20) * scale;
+      if (this.firstLate) { this.levelLate = this.tgtLate; this.firstLate = false; }
+      // commit
+      this.events = events; this.src.set(src); this.tgtD.set(td); this.tgtG.set(tg); this.far.set(far); this.alpha.set(alpha); this.shLf.set(lf); this.shHf.set(hf); this.head = headS;
+      const first = !this.processed; if (first) { this.nEv = n; this.curD.set(td); this.curG.set(tg); } else this.nEv = Math.max(n, this.nEv);
+      this.nNew = n;
+    }
+    /** one block of n samples -> the wet pair (early reflections + late field) */
+    block(inL, inR, outL, outR, n) {
+      if (n > this.maxBlock) { for (let i = 0; i < n; i += this.maxBlock) this.block(inL.subarray(i, i + this.maxBlock), inR.subarray(i, i + this.maxBlock), outL.subarray(i, i + this.maxBlock), outR.subarray(i, i + this.maxBlock), Math.min(this.maxBlock, n - i)); return; }
+      const mask = this.mask, ptr = this.ptr, lp = this.lp, lz = this.lz;
+      // the four bands of both loudspeaker feeds into the rings
+      for (let ch = 0; ch < 2; ch++) {
+        const x = ch === 0 ? inL : inR, ring = this.rings[ch];
+        for (let k = 0; k < n; k++) {
+          const xv = x[k]; let prev = 0.0;
+          const base = ((ptr + k) & mask) << 2;
+          for (let e = 0; e < 3; e++) {
+            const o = (ch * 3 + e) * 2, c = lp[e], y = c.b[0] * xv + lz[o];
+            lz[o] = c.b[1] * xv - c.a[1] * y + lz[o + 1]; lz[o + 1] = c.b[2] * xv - c.a[2] * y;
+            ring[base + e] = y - prev; prev = y;
+          }
+          ring[base + 3] = xv - prev;
+        }
+      }
+      for (let k = 0; k < n; k++) { outL[k] = 0.0; outR[k] = 0.0; }
+      const head = this.head, nEv = this.nEv, sh = this.sh;
+      for (let ev = 0; ev < nEv; ev++) {
+        const ring = this.rings[this.src[ev]], g0 = this.curG, g1 = this.tgtG, gi = ev * 4;
+        const gd0 = g1[gi] - g0[gi], gd1 = g1[gi + 1] - g0[gi + 1], gd2 = g1[gi + 2] - g0[gi + 2], gd3 = g1[gi + 3] - g0[gi + 3];
+        const rampG = gd0 !== 0 || gd1 !== 0 || gd2 !== 0 || gd3 !== 0, a = this.alpha[ev], ia = 1.0 - a, lfv = this.shLf[ev], hfv = this.shHf[ev];
+        const b0 = g0[gi], b1 = g0[gi + 1], b2 = g0[gi + 2], b3 = g0[gi + 3];
+        for (let ear = 0; ear < 2; ear++) {
+          const d0 = this.curD[ev * 2 + ear], dd = this.tgtD[ev * 2 + ear] - d0, rampD = dd !== 0, out = ear === 0 ? outL : outR;
+          const shadow = ear === this.far[ev] && head > 0.0, so = ev * 2 + ear;
+          let st = sh[so];
+          if (!rampD && !rampG) {
+            // steady: the delay (a fraction of a sample) and the four band gains are constants, so  sum_b g_b x_b  is formed first and
+            // the interpolation uses the previous sum:  y(k) = (1-fr) A(k) + fr A(k-1),  A(k) = sum_b g_b ring_b(k - di)
+            const d = d0 < 1.0 ? 1.0 : d0, di = Math.trunc(d), fr = d - di, w0 = 1.0 - fr;
+            const q0 = ((ptr - 1 - di) & mask) << 2;
+            let aPrev = b0 * ring[q0] + b1 * ring[q0 + 1] + b2 * ring[q0 + 2] + b3 * ring[q0 + 3];
+            if (shadow) {
+              for (let k = 0; k < n; k++) {
+                const p = ((ptr + k - di) & mask) << 2, A = b0 * ring[p] + b1 * ring[p + 1] + b2 * ring[p + 2] + b3 * ring[p + 3];
+                let y = w0 * A + fr * aPrev; aPrev = A;
+                st = a * st + ia * y; y += head * ((lfv * st + hfv * (y - st)) - y);
+                out[k] += y;
+              }
+            } else {
+              for (let k = 0; k < n; k++) {
+                const p = ((ptr + k - di) & mask) << 2, A = b0 * ring[p] + b1 * ring[p + 1] + b2 * ring[p + 2] + b3 * ring[p + 3];
+                out[k] += w0 * A + fr * aPrev; aPrev = A;
+              }
+            }
+          } else {
+            // the block in which a delay or a gain moves: both glide linearly over the block, as on the PC
+            for (let k = 0; k < n; k++) {
+              const fb = (k + 1) / n;
+              let d = d0 + dd * fb; if (d < 1.0) d = 1.0;
+              const di = Math.trunc(d), fr = d - di, w0 = 1.0 - fr;
+              const i0 = ((ptr + k - di) & mask) << 2, i1 = ((ptr + k - di - 1) & mask) << 2;
+              let y = (b0 + gd0 * fb) * (ring[i0] * w0 + ring[i1] * fr) + (b1 + gd1 * fb) * (ring[i0 + 1] * w0 + ring[i1 + 1] * fr)
+                + (b2 + gd2 * fb) * (ring[i0 + 2] * w0 + ring[i1 + 2] * fr) + (b3 + gd3 * fb) * (ring[i0 + 3] * w0 + ring[i1 + 3] * fr);
+              if (shadow) { st = a * st + ia * y; y += head * ((lfv * st + hfv * (y - st)) - y); }
+              out[k] += y;
+            }
+          }
+          sh[so] = st;
+        }
+      }
+      this.curD.set(this.tgtD); this.curG.set(this.tgtG); this.nEv = this.events.length; this.processed = true;
+      this.ptr = (ptr + n) & mask;
+      // the late field: high-pass, FDN, level ramp over the block
+      const l0 = this.levelLate, l1 = this.tgtLate, h0 = this.hp[0], h1 = this.hp[1], fdn = this.fdn;
+      for (let k = 0; k < n; k++) {
+        const fo = fdn.step(h0.tick(inL[k]), h1.tick(inR[k])), r = l0 + (l1 - l0) * (k + 1) / n;
+        outL[k] += fo[0] * r; outR[k] += fo[1] * r;
+      }
+      this.levelLate = l1;
+    }
+  }
+
   class Engine {
     constructor(fs) {
       this.fs = fs;
@@ -2836,7 +3459,7 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
       this.hl = new Float64Array(n); this.hr = new Float64Array(n); this.wp = 0;
       this.hpC = [new Cascade([butterHP2(DEFAULTS.hp_hz, fs)]), new Cascade([butterHP2(DEFAULTS.hp_hz, fs)])];
       this.hpFc = DEFAULTS.hp_hz;
-      this.bauer = new BauerV3(fs);
+      this.bauer = new BauerV3(fs); this.bs2b = new Bs2b(fs); this.useBs2b = false; this.xfeed = this.bauer;
       this.fdn = new Fdn(fs);
       this.taps = null; this.oldTaps = null; this.vtaps = null; this.oldVt = null; this.xfLeft = 0; this.xfLen = Math.max(1, Math.round(0.03 * fs));
       this.geoKey = null; this.vKey = null;
@@ -2850,6 +3473,7 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
       this.cpuAcc = 0;
       this.mode = 'pro11v4'; this.alt = null; this.altCache = {}; this.shaper = new WetShaper(fs);
       this.w2 = new Float64Array(2); this.s2 = new Float64Array(2);
+      this.post = new PostChain(fs);
     }
     /**
      * params: ENGINE_DEFAULTS keys + Pro11 keys (DEFAULTS) + V4_DEFAULTS keys.
@@ -2857,7 +3481,9 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
      */
     setParams(prm, geo, cal) {
       const e = Object.assign({}, ENGINE_DEFAULTS, prm || {});
-      this.bauer.set(e.bauer_depth, e.bauer_fc, e.bauer_angle, e.bauer_head, e.bauer_centre, e.bauer_lf_itd, this.first);
+      this.bauer.set(e.bauer_depth, e.bauer_fc, e.bauer_angle, e.bauer_head, e.bauer_centre, e.bauer_lf_itd, this.first, e.bauer_q, e.bauer_radius);
+      this.bs2b.set(Number(e.bs2b_fc), Number(e.bs2b_feed_db), Number(e.bs2b_delay_ms));
+      { const ub = e.bauer_method === 'bs2b'; if (ub !== this.useBs2b) { this.useBs2b = ub; this.xfeed = ub ? this.bs2b : this.bauer; this.xfeed.reset(); } }
       this.tgtBauer = e.bauerOn ? 1 : 0; this.tgtSpace = e.spatialOn ? 1 : 0; this.tgtBypass = e.bypass ? 0 : 1;
       this.tgtGain = Math.pow(10, (Number(e.gain_db) || 0) / 20);
       const mode = e.mode || 'pro11v4';
@@ -2865,8 +3491,8 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
         this.mode = mode;
         if (!this.altCache[mode]) this.altCache[mode] = new MODE_CLASSES[mode](this.fs);
         this.alt = this.altCache[mode];
-        this.alt.set(e);
-        const generic = !this.alt.replaces;
+        this.alt.set(e, cal);
+        const generic = !this.alt.replaces && !this.alt.nativeDir;
         this.shaper.set(generic && e.mat_dir_on ? directivityNodesDb(e.mat_dir_strength != null ? e.mat_dir_strength : 1.0) : null, this.first);
         this.first = false;
         return;
@@ -2906,9 +3532,11 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
       this.vertTgt = v; this.vertLeft = Math.max(1, Math.round(0.02 * this.fs));
       this.vertStep = (v - this.vertNow) / this.vertLeft;
     }
+    /** the finished EQ / HRTF design from designPost() (or null for none) */
+    setPost(spec) { this.post.set(spec); }
     reset() {
-      this.altCache = {}; this.alt = null; this.shaper = new WetShaper(this.fs);
-      this.hl.fill(0); this.hr.fill(0); this.bauer.reset(); this.hpC.forEach((c) => c.reset());
+      this.post = new PostChain(this.fs); this.altCache = {}; this.alt = null; this.shaper = new WetShaper(this.fs);
+      this.hl.fill(0); this.hr.fill(0); this.bauer.reset(); this.bs2b.reset(); this.hpC.forEach((c) => c.reset());
       this.fdn = new Fdn(this.fs); this.first = true;
       this.geoKey = null; this.vKey = null; this.taps = null; this.vtaps = null; this.oldTaps = this.oldVt = null;
     }
@@ -2933,7 +3561,7 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
         if (this.vertLeft > 0) { this.vertNow += this.vertStep; if (--this.vertLeft === 0) this.vertNow = this.vertTgt; }
 
         // crossfeed (always running, so toggling it has no state jump)
-        const bo = this.bauer.step(xl, xr);
+        const bo = this.xfeed.step(xl, xr);
         const dL = xl + this.mixBauer * (bo[0] - xl), dR = xr + this.mixBauer * (bo[1] - xr);
 
         // spatial layer on the UN-crossfed input
@@ -2976,6 +3604,11 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
       }
     }
   }
+  const _procCore = Engine.prototype.process;
+  Engine.prototype.process = function (inL, inR, outL, outR, n) {
+    _procCore.call(this, inL, inR, outL, outR, n);
+    if (this.post.active || this.post.mix !== 1) this.post.process(outL, outR, n, this.mixBypass);
+  };
   Engine.prototype._processAlt = function (inL, inR, outL, outR, n) {
     const alt = this.alt, w = this.w2, s = this.s2, shaper = this.shaper, replaces = !!alt.replaces;
     const mixStep = this.mixStep;
@@ -2995,7 +3628,7 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
       if (replaces) {                                  // Pro 15-17: the mode renders the whole output (no crossfeed, as on the PC)
         pL = xl + this.mixSpace * (w[0] - xl); pR = xr + this.mixSpace * (w[1] - xr);
       } else {
-        const bo = this.bauer.step(xl, xr);
+        const bo = this.xfeed.step(xl, xr);
         const dL = xl + this.mixBauer * (bo[0] - xl), dR = xr + this.mixBauer * (bo[1] - xr);
         shaper.step(w[0], w[1], s);
         pL = dL + this.mixSpace * s[0]; pR = dR + this.mixSpace * s[1];
@@ -3006,14 +3639,17 @@ select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid
     }
   };
   WetShaper.exact = false;
-  const MODE_CLASSES = { pro10v3: Pro10V3, pro12v2: Pro12V2, pro13: Pro13, pro14v2: Pro14V2, pro15: Pro15, pro16: Pro16, pro17: Pro17, air8: Air8 };
+  class CfOnly { constructor() { this.replaces = false; this.nativeDir = true; } set() {} step(xl, xr, w) { w[0] = 0.0; w[1] = 0.0; } }
+  const MODE_CLASSES = { cfonly: CfOnly, pro10v3: Pro10V3, pro12v2: Pro12V2, pro13: Pro13, pro14v2: Pro14V2, pro15: Pro15, pro16: Pro16, pro17: Pro17, air8: Air8, pro21: Pro21 };
   function stepTo(cur, tgt, step) { return cur < tgt ? Math.min(tgt, cur + step) : Math.max(tgt, cur - step); }
 
   return {
-    Engine, MODE_CLASSES, Pro10V3, Pro12V2, Pro13, Pro14V2, Pro15, Pro16, Pro17, Air8, WetShaper, wetShapeFir, directivityNodesDb, chValue, GainRamp,
-    BauerV3, Fdn, TapSet: makeTapSet, VertTaps, Cascade, calibrationScale,
+    Engine, MODE_CLASSES, Pro10V3, Pro12V2, Pro13, Pro14V2, Pro15, Pro16, Pro17, Air8, Pro21, WetShaper, wetShapeFir, directivityNodesDb, chValue, GainRamp,
+    BauerV3, Bs2b, Fdn, TapSet: makeTapSet, VertTaps, Cascade, calibrationScale,
     designBauerV3, normaliseParams, normaliseV4, levelsDb, rtScale, butterHP2, peaking, shelf, lowpass1,
     DEFAULTS, V4_DEFAULTS, ENGINE_DEFAULTS, FDN_MS, AP_MS,
+    parseEQ, eqDb, eqPreDb, eqMagDb, eqFilterCoefs, hrParse, hrDb, hrInterp, hrNotchOf, hrDesign, designPost, PostChain, PConv, minPhaseFirDb,
+    pro21Check, pro21Events, P21_DEFAULTS, P21_REFL, P21_SURF,
   };
 });
 </script>
@@ -3032,7 +3668,11 @@ const DEFAULTS = {
   p_envelop: 75, p_live: 50, p_intimate: 50, ceiling_m: 2.7, ear_m: 1.2, elev: 1,
   mode: 'pro11v4', mat_dir_on: true, mat_dir_strength: 1.0, ch_enabled: true, p_front: 75, p_height: 50, fdn_enabled: true,
   pro17_dither_on: false,
+  bauer_method: 'exo',
+  eqOn: false, eqPre: true, eqName: '', hrOn: false, hrSync: true, hrName: '',
+  p21_air_db_per_m: [0.0, 0.01, 0.04, 0.10],
 };
+for (const w of DSP.P21_SURF) DEFAULTS['p21_reflect_' + w] = DSP.P21_REFL[w].slice();
 
 // ---- modes: which controls each one has (defaults = the PC engine's) -------------------------------------------------
 // [label, min, max, step, default, unit, decimals]
@@ -3114,6 +3754,39 @@ const SPEC = {
   air8_cer_comp: ['CERの音量補正', 0, 1, 0.05, 1, '', 2],
   air8_lfsan: ['低域の整え (LFSan)', 0, 2, 0.05, 0, '', 2],
   air8_lfsan_r0: ['LFSanの壁までの距離', 3, 12, 0.5, 10, ' m', 1],
+  bauer_depth: ['深さ (回り込む量)', 0, 1.2, 0.01, 0.5, '', 2],
+  bauer_fc: ['境目の高さ', 200, 1500, 5, 500, ' Hz', 0],
+  bauer_angle: ['スピーカーの角度', 20, 90, 1, 30, ' °', 0],
+  bauer_q: ['ローパスのQ', 0.5, 0.71, 0.01, 0.5, '', 2],
+  bauer_head: ['頭の影 (反対の耳の高域を落とす)', 0, 1, 0.01, 1, '', 2],
+  bauer_centre: ['中央の保ち (0 = 単純なクロスフィード)', 0, 1, 0.01, 1, '', 2],
+  bauer_lf_itd: ['低域の遅れ', 1, 3, 0.05, 1.5, '', 2],
+  bauer_radius: ['頭の半径', 0.06, 0.12, 0.0025, 0.0875, ' m', 4],
+  bs2b_fc: ['境目の高さ', 300, 1500, 10, 700, ' Hz', 0],
+  bs2b_feed_db: ['左右の差 (小さいほど強く混ざる)', 1, 15, 0.5, 4.5, ' dB', 1],
+  bs2b_delay_ms: ['追加の遅れ', 0, 0.6, 0.05, 0, ' ms', 2],
+  hrAmt: ['補正の量', 0, 150, 1, 100, ' %', 0],
+  late_db: ['残響の大きさ', -45, 0, 0.5, -24, ' dB', 1],
+  rt_low: ['残響の長さ 低域', 0.2, 6, 0.05, 1.2, ' 秒', 2],
+  rt_high: ['残響の長さ 高域', 0.1, 6, 0.05, 0.6, ' 秒', 2],
+  coh_lf: ['残響の左右の似かた 低域', 0, 0.95, 0.01, 0.7, '', 2],
+  coh_hf: ['残響の左右の似かた 高域', 0, 0.95, 0.01, 0.15, '', 2],
+  p21_er_db: ['反射の大きさ', -40, 0, 0.5, -17.9, ' dB', 1],
+  p21_order: ['反射の次数 (1 = 1回、2 = 2回まで)', 1, 2, 1, 2, '', 0],
+  p21_room_width: ['部屋の幅', 2, 20, 0.1, 5, ' m', 1],
+  p21_room_front: ['部屋の前 (聴き手の原点から前の壁まで)', 1, 15, 0.1, 3.5, ' m', 1],
+  p21_room_back: ['部屋の後ろ (聴き手の原点から後ろの壁まで)', 1, 15, 0.1, 4, ' m', 1],
+  p21_room_height: ['部屋の高さ', 2, 6, 0.05, 2.6, ' m', 2],
+  p21_listener_x: ['聴き手の左右の位置', -9, 9, 0.05, 0, ' m', 2],
+  p21_listener_y: ['聴き手の前後の位置', -14, 14, 0.05, 0, ' m', 2],
+  p21_listener_z: ['聴き手の耳の高さ', 0.4, 2.5, 0.05, 1.2, ' m', 2],
+  p21_listener_yaw_deg: ['聴き手の向き', -90, 90, 1, 0, ' °', 0],
+  p21_speaker_distance: ['スピーカーまでの距離', 0.3, 6, 0.05, 1.2, ' m', 2],
+  p21_speaker_azimuth_deg: ['スピーカーの開き (左右それぞれ)', 0, 80, 1, 30, ' °', 0],
+  p21_speaker_height: ['スピーカーの高さ', 0.3, 2.5, 0.05, 1.2, ' m', 2],
+  p21_head_radius: ['頭の半径', 0.06, 0.15, 0.0025, 0.0875, ' m', 4],
+  p21_head_shadow: ['頭の影 (反対の耳の高域)', 0, 1, 0.01, 1, '', 2],
+  p21_elevation_strength: ['高さの音色変化', 0, 1, 0.01, 0.25, '', 2],
   pro17_dither_deg: ['ゆらぎの大きさ', 0, 10, 0.1, 0.1, ' °', 1],
 };
 for (const [k, v] of Object.entries(SPEC)) if (!(k in DEFAULTS)) DEFAULTS[k] = v[4];
@@ -3151,6 +3824,15 @@ const MODES = {
       'air6_distance', 'air6_morph', 'air5_itdg_ms', 'air5_er_style', 'air5_ceiling', 'air5_late_er_db', 'air5_side_hf', 'air6_shape',
       'air4_head', 'air4_pinna', 'air6_head_v2', 'air6_hf_shadow_db', 'air6_n2', 'air7_contra_db', 'air7_el_tilt', 'air7_ic_model', 'air7_ic_link',
       'air4_unmask', 'air5_unmask_spread', 'air4_late_coh', 'air4_direct_ext'] },
+  pro21: { name: 'Pro 21', bauer: true, dir: true, extra: 'p21',
+    note: '部屋の寸法と、左右2本の仮想スピーカー・聴き手の位置から、壁・床・天井の反射(1回と2回、最大48本)を計算します。残響は Pro 11 v3 と同じです。クロスフィードは直接音に掛けます。',
+    ctl: ['p21_er_db', 'p21_order', 'p21_room_width', 'p21_room_front', 'p21_room_back', 'p21_room_height',
+      'p21_listener_x', 'p21_listener_y', 'p21_listener_z', 'p21_listener_yaw_deg',
+      'p21_speaker_distance', 'p21_speaker_azimuth_deg', 'p21_speaker_height',
+      'p21_head_radius', 'p21_head_shadow', 'p21_elevation_strength',
+      'late_db', 'rt_low', 'rt_high', 'coh_lf', 'coh_hf'] },
+  cfonly: { name: 'クロスフィードのみ', bauer: true, hideSpace: true, openBauer: true,
+    note: '空間を作らず、クロスフィードだけを掛けます。上の「クロスフィード」で、方式と各値を細かく決められます。EQ・HRTFも使えます。', ctl: [] },
 };
 const curMode = () => MODES[S.mode] || MODES.pro11v4;
 const FMT = {
@@ -3198,6 +3880,10 @@ function buildParams() {
   const wa = Number(S.wall_abs);
   prm.wall_absorb_low = Math.max(0, wa - 0.05); prm.wall_absorb_mid = wa; prm.wall_absorb_high = Math.min(1, wa + 0.05);
   prm.pro17_motion_mode = S.pro17_dither_on ? 'dither' : 'static';
+  prm.bauer_method = S.bauer_method === 'bs2b' ? 'bs2b' : 'exo';
+  prm.p21_air_db_per_m = (S.p21_air_db_per_m || DEFAULTS.p21_air_db_per_m).map(Number);
+  const nh = (HR && S.hrOn && S.hrSync && HR.notch) ? HR.notch : 0;       // the HRTF's own pinna notch moves the notches of the reflections
+  prm.notch_hz = nh; prm.pinna_notch_base_hz = nh; prm.air4_notch_hz = nh;
   const geo = resolveGeo();
   const p = DSP.normaliseParams(prm), rs = DSP.rtScale(p);
   const cal = DSP.calibrationScale(p.rt_low * rs, p.rt_high * rs);
@@ -3209,7 +3895,7 @@ function pushParams() {
     const { prm, geo, cal } = buildParams();
     if (node) node.port.postMessage({ type: 'params', params: prm, geo, cal });
     else if (engineMain) engineMain.setParams(prm, geo, cal);
-    drawScope();
+    drawScope(); p21Msgs(prm);
   }, 40);
 }
 
@@ -3219,7 +3905,7 @@ class ExoProc extends AudioWorkletProcessor {
     super();
     this.e = new ExoDSP.Engine(sampleRate);
     this.z = new Float32Array(128);
-    this.port.onmessage = (ev) => { const m = ev.data; if (m.type === 'params') this.e.setParams(m.params, m.geo, m.cal); };
+    this.port.onmessage = (ev) => { const m = ev.data; if (m.type === 'params') this.e.setParams(m.params, m.geo, m.cal); else if (m.type === 'post') this.e.setPost(m.spec); };
   }
   process(inputs, outputs) {
     const i = inputs[0], o = outputs[0];
@@ -3259,6 +3945,7 @@ async function initAudio() {
   if (ctx.state === 'suspended') await ctx.resume();
   const { prm, geo, cal } = buildParams();
   if (node) node.port.postMessage({ type: 'params', params: prm, geo, cal }); else engineMain.setParams(prm, geo, cal);
+  pushPost(true);
   updateStatus();
 }
 
@@ -3269,6 +3956,7 @@ function benchmark(fs) {
     const e = new DSP.Engine(fs);
     const { prm, geo, cal } = buildParams();
     e.setParams(prm, geo, cal);
+    e.setPost(postSpec(fs));
     const n = fs, a = new Float32Array(n), b = new Float32Array(n), oa = new Float32Array(n), ob = new Float32Array(n);
     for (let i = 0; i < n; i++) { a[i] = (Math.random() - 0.5) * 0.3; b[i] = (Math.random() - 0.5) * 0.3; }
     const t0 = performance.now();
@@ -3370,12 +4058,12 @@ function makeDemoWav() {
 $('demo').onclick = () => { list.push({ name: 'デモ音 (左右に振った撥弦)', url: makeDemoWav() }); audio.loop = false; setTrack(list.length - 1, true); };
 
 // ---- controls -------------------------------------------------------------------------------------------------------
-const SLIDERS = ['p_front', 'p_height', 'mat_dir_strength', 'bauer_depth', 'er_db', 'late_db', 'rt_low', 'rt_high', 'vert', 'gain_db', 'itd_ms', 'coh_lf', 'coh_hf', 'p_envelop', 'p_live', 'p_intimate', 'ceiling_m', 'ear_m', 'elev'];
+const SLIDERS = ['p_front', 'p_height', 'mat_dir_strength', 'er_db', 'late_db', 'rt_low', 'rt_high', 'vert', 'gain_db', 'itd_ms', 'coh_lf', 'coh_hf', 'p_envelop', 'p_live', 'p_intimate', 'ceiling_m', 'ear_m', 'elev'];
 function syncUi() {
   for (const k of SLIDERS) { $(k).value = S[k]; $('o_' + k).textContent = FMT[k](Number(S[k])); }
   for (const k of ['bauerOn', 'spatialOn']) $(k).setAttribute('aria-pressed', String(!!S[k]));
   $('dirOn').setAttribute('aria-pressed', String(!!S.mat_dir_on)); $('chOn').setAttribute('aria-pressed', String(!!S.ch_enabled));
-  renderMode();
+  renderMode(); renderBauer(); refreshCtls(); renderPost();
   $('segDry').setAttribute('aria-pressed', String(!!S.bypass)); $('segFx').setAttribute('aria-pressed', String(!S.bypass));
   fillGeom();
   $('o_dist').textContent = FMT.dist(S.dist);
@@ -3387,6 +4075,36 @@ function fillModes() {
   m.value = S.mode;
 }
 let builtFor = '';
+// one control = a slider and a number box (type the exact value); SPEC gives label, range, step, unit, decimals
+function ctlRow(k, pre) {
+  const sp = SPEC[k], id = (pre || 'c_') + k, u = (sp[5] || '').trim();
+  return `<div class="ctl"><label for="${id}">${sp[0]}</label><span class="nbw"><input class="nb num" type="number" inputmode="decimal" step="any" id="n_${id}" data-k="${k}" min="${sp[1]}" max="${sp[2]}" aria-label="${sp[0]} の値"><span class="u">${u}</span></span>`
+    + `<input type="range" id="${id}" data-k="${k}" min="${sp[1]}" max="${sp[2]}" step="${sp[3]}"></div>`;
+}
+const fmtNum = (k, v) => Number(v).toFixed(SPEC[k][6]);
+function refreshCtls() {
+  for (const el of document.querySelectorAll('[data-k]')) {
+    const k = el.dataset.k; if (!SPEC[k] || S[k] === undefined) continue;
+    if (el === document.activeElement && el.type === 'number') continue;          // do not rewrite what is being typed
+    el.value = el.type === 'range' ? S[k] : fmtNum(k, S[k]);
+  }
+}
+const POST_KEYS = new Set(['hrAmt']);
+function setKey(k, v, from) {
+  const sp = SPEC[k]; if (!sp || !isFinite(v)) return;
+  v = Math.min(sp[2], Math.max(sp[1], v));
+  S[k] = v; save();
+  for (const el of document.querySelectorAll('[data-k="' + k + '"]')) if (el !== from) el.value = el.type === 'range' ? v : fmtNum(k, v);
+  if (POST_KEYS.has(k)) { pushPost(false); hrDraw(); renderPostMsgs(); } else pushParams();
+}
+document.addEventListener('input', (ev) => { const t = ev.target; if (t && t.dataset && t.dataset.k && t.type === 'range') setKey(t.dataset.k, parseFloat(t.value), t); });
+document.addEventListener('change', (ev) => {
+  const t = ev.target; if (!t || !t.dataset || !t.dataset.k || t.type !== 'number') return;
+  const v = parseFloat(String(t.value).replace(',', '.'));
+  if (!isFinite(v)) { t.value = fmtNum(t.dataset.k, S[t.dataset.k]); return; }
+  setKey(t.dataset.k, v, null); t.value = fmtNum(t.dataset.k, S[t.dataset.k]);
+});
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && ev.target && ev.target.type === 'number') ev.target.blur(); });
 function renderMode() {
   if (!MODES[S.mode]) S.mode = 'pro11v4';
   const M = curMode(), box = $('modeCtl');
@@ -3394,6 +4112,7 @@ function renderMode() {
   $('spaceH').textContent = '空間 ' + M.name;
   $('scopeSec').hidden = !M.p11; $('p11ctl').hidden = !M.p11; $('p11detail').hidden = !M.p11;
   $('bauerSec').hidden = !!M.replace;
+  $('spaceSec').hidden = !!M.hideSpace;
   $('dirBox').hidden = !M.dir;
   $('spaceSub').textContent = M.p11 ? '8つの壁反射、床・天井、残響。' : (M.replace ? 'このモードが直接音から作り直します。' : '反射と残響を直接音に足します。');
   if (builtFor !== S.mode) {
@@ -3401,21 +4120,66 @@ function renderMode() {
     const add = (html) => box.insertAdjacentHTML('beforeend', html);
     if (M.fdn) add('<div class="sw"><div class="t"><b>残響 (FDN)</b><span>切ると初期反射だけになります。</span></div><button class="tog" id="fdnOn" aria-pressed="true" aria-label="残響"></button></div>');
     if (M.dither) add('<div class="sw"><div class="t"><b>聴き手のゆらぎ</b><span>ごくわずかに頭を動かしたように、位置を揺らします。</span></div><button class="tog" id="ditherOn" aria-pressed="false" aria-label="ゆらぎ"></button></div>');
-    for (const k of M.ctl) {
-      const sp = SPEC[k];
-      add(`<div class="ctl"><label for="m_${k}">${sp[0]}</label><output id="o_m_${k}"></output><input type="range" id="m_${k}" min="${sp[1]}" max="${sp[2]}" step="${sp[3]}"></div>`);
+    if (M.extra === 'p21') add('<div class="msg" id="p21info"></div><div class="msg err" id="p21err" hidden></div>');
+    for (const k of M.ctl) add(ctlRow(k, 'm_'));
+    if (M.dither) add(ctlRow('pro17_dither_deg', 'm_'));
+    if (M.extra === 'p21') {
+      add('<details id="p21walls"><summary>壁の反射係数と空気の吸収</summary><div class="hint">反射係数は音の振幅の割合です (1 = 全部返す)。帯域は、〜500 Hz / 500〜3000 Hz / 3000〜8000 Hz / 8000 Hz〜 です。</div><div class="walls" id="wallGrid"></div><button class="btn small" id="wallReset">初期値に戻す</button></details>');
+      const g = $('wallGrid'); let h = '<span></span><span class="h">〜500</span><span class="h">〜3k</span><span class="h">〜8k</span><span class="h">8k〜</span>';
+      const names = { floor: '床', ceiling: '天井', left: '左壁', right: '右壁', front: '前壁', back: '後壁' };
+      for (const w of DSP.P21_SURF) { h += `<span>${names[w]}</span>`; for (let i = 0; i < 4; i++) h += `<input class="nb num" type="number" inputmode="decimal" step="0.01" min="0" max="1.2" data-wall="${w}" data-i="${i}" aria-label="${names[w]} 帯域${i + 1}">`; }
+      h += '<span>空気 dB/m</span>'; for (let i = 0; i < 4; i++) h += `<input class="nb num" type="number" inputmode="decimal" step="0.01" min="0" max="2" data-air="${i}" aria-label="空気の吸収 帯域${i + 1}">`;
+      g.innerHTML = h;
+      g.addEventListener('change', (ev) => {
+        const t = ev.target, v = parseFloat(String(t.value).replace(',', '.'));
+        if (t.dataset.wall) { const key = 'p21_reflect_' + t.dataset.wall, a = (S[key] || DEFAULTS[key]).slice(); if (isFinite(v)) a[+t.dataset.i] = Math.min(1.2, Math.max(0, v)); S[key] = a; }
+        else if (t.dataset.air !== undefined) { const a = (S.p21_air_db_per_m || DEFAULTS.p21_air_db_per_m).slice(); if (isFinite(v)) a[+t.dataset.air] = Math.min(2, Math.max(0, v)); S.p21_air_db_per_m = a; }
+        save(); renderWalls(); pushParams();
+      });
+      $('wallReset').onclick = () => { for (const w of DSP.P21_SURF) S['p21_reflect_' + w] = DEFAULTS['p21_reflect_' + w].slice(); S.p21_air_db_per_m = DEFAULTS.p21_air_db_per_m.slice(); save(); renderWalls(); pushParams(); };
     }
-    for (const k of M.ctl) $('m_' + k).addEventListener('input', () => { S[k] = parseFloat($('m_' + k).value); $('o_m_' + k).textContent = FMT[k](S[k]); save(); pushParams(); });
     if (M.fdn) $('fdnOn').onclick = () => { S.fdn_enabled = !S.fdn_enabled; syncUi(); save(); pushParams(); };
-    if (M.dither) {
-      $('ditherOn').onclick = () => { S.pro17_dither_on = !S.pro17_dither_on; syncUi(); save(); pushParams(); };
-      add('<div class="ctl"><label for="m_pro17_dither_deg">' + SPEC.pro17_dither_deg[0] + '</label><output id="o_m_pro17_dither_deg"></output><input type="range" id="m_pro17_dither_deg" min="0" max="10" step="0.1"></div>');
-      $('m_pro17_dither_deg').addEventListener('input', () => { S.pro17_dither_deg = parseFloat($('m_pro17_dither_deg').value); $('o_m_pro17_dither_deg').textContent = FMT.pro17_dither_deg(S.pro17_dither_deg); save(); pushParams(); });
-    }
+    if (M.dither) $('ditherOn').onclick = () => { S.pro17_dither_on = !S.pro17_dither_on; syncUi(); save(); pushParams(); };
   }
-  for (const k of M.ctl) { $('m_' + k).value = S[k]; $('o_m_' + k).textContent = FMT[k](Number(S[k])); }
-  if (M.dither) { $('m_pro17_dither_deg').value = S.pro17_dither_deg; $('o_m_pro17_dither_deg').textContent = FMT.pro17_dither_deg(Number(S.pro17_dither_deg)); $('ditherOn').setAttribute('aria-pressed', String(!!S.pro17_dither_on)); }
+  if (M.dither) $('ditherOn').setAttribute('aria-pressed', String(!!S.pro17_dither_on));
   if (M.fdn) $('fdnOn').setAttribute('aria-pressed', String(!!S.fdn_enabled));
+  if (M.extra === 'p21') renderWalls();
+  if (M.openBauer) { const d = $('bauerSec'); d.scrollMarginTop = '8px'; }
+}
+function renderWalls() {
+  const g = $('wallGrid'); if (!g) return;
+  for (const el of g.querySelectorAll('[data-wall]')) { if (el === document.activeElement) continue; const a = S['p21_reflect_' + el.dataset.wall] || DEFAULTS['p21_reflect_' + el.dataset.wall]; el.value = Number(a[+el.dataset.i]).toFixed(2); }
+  const air = S.p21_air_db_per_m || DEFAULTS.p21_air_db_per_m;
+  for (const el of g.querySelectorAll('[data-air]')) { if (el === document.activeElement) continue; el.value = Number(air[+el.dataset.air]).toFixed(2); }
+}
+// the crossfeed: two methods, each with its own controls
+const BX_EXO = ['bauer_depth', 'bauer_fc', 'bauer_angle', 'bauer_q', 'bauer_head', 'bauer_centre', 'bauer_lf_itd', 'bauer_radius'];
+const BX_BS = ['bs2b_fc', 'bs2b_feed_db', 'bs2b_delay_ms'];
+const BX_PRESETS = {
+  exo: [['元の設定', { bauer_depth: 0.5, bauer_fc: 500, bauer_angle: 30, bauer_q: 0.5, bauer_head: 1, bauer_centre: 1, bauer_lf_itd: 1.5, bauer_radius: 0.0875 }],
+        ['遅れ短め', { bauer_fc: 500, bauer_angle: 15, bauer_q: 0.71 }]],
+  bs2b: [['標準', { bs2b_fc: 700, bs2b_feed_db: 4.5, bs2b_delay_ms: 0 }], ['Chu Moy風', { bs2b_fc: 700, bs2b_feed_db: 6, bs2b_delay_ms: 0 }], ['Jan Meier風', { bs2b_fc: 650, bs2b_feed_db: 9.5, bs2b_delay_ms: 0 }]],
+};
+let bxBuilt = false;
+function renderBauer() {
+  if (!bxBuilt) {
+    bxBuilt = true;
+    $('bxExo').innerHTML = BX_EXO.map((k) => ctlRow(k, 'b_')).join('');
+    $('bxBs').innerHTML = BX_BS.map((k) => ctlRow(k, 'b_')).join('');
+    $('bmExo').onclick = () => { S.bauer_method = 'exo'; save(); renderBauer(); refreshCtls(); pushParams(); };
+    $('bmBs').onclick = () => { S.bauer_method = 'bs2b'; save(); renderBauer(); refreshCtls(); pushParams(); };
+  }
+  const bs = S.bauer_method === 'bs2b';
+  $('bmExo').setAttribute('aria-pressed', String(!bs)); $('bmBs').setAttribute('aria-pressed', String(bs));
+  $('bxExo').hidden = bs; $('bxBs').hidden = !bs;
+  $('bmNote').textContent = bs ? 'bs2b の公開説明をもとに作り直した方式です。反対の耳へは低い音だけを回し、直接の音にも合わせた補正をかけます。ExoSpace の Bauer v3 とは別の式です。'
+    : 'ExoSpace の Bauer v3 クロスフィードと同じ式です。角度から左右の遅れと頭の影を決め、中央の音を保ちます。';
+  const pr = $('bxPresets'); pr.innerHTML = '';
+  for (const [name, vals] of BX_PRESETS[bs ? 'bs2b' : 'exo']) {
+    const b = document.createElement('button'); b.className = 'btn small'; b.textContent = name;
+    b.onclick = () => { for (const [k, v] of Object.entries(vals)) S[k] = v; save(); refreshCtls(); pushParams(); };
+    pr.appendChild(b);
+  }
 }
 function fillGeom() {
   const gs = Object.keys(TABLE.geoms);
@@ -3474,7 +4238,7 @@ function drawScope() {
   const fs = 48000, TMAX = 0.08, DBR = 54;
   let geo;
   try { geo = resolveGeo(); } catch (e) { return; }
-  const p = DSP.normaliseParams(S), v4 = DSP.normaliseV4(S);
+  const p = DSP.normaliseParams(S), v4 = DSP.normaliseV4(Object.assign({}, S, { notch_hz: curNotch() }));
   const taps = DSP.TapSet(fs, p, geo), vt = new DSP.VertTaps(fs, p.dist, v4);
   const [erDb] = DSP.levelsDb(p), lvl = Math.pow(10, erDb / 20);
   const f = Math.min(v4.vert, 0.8 * taps.pvE / Math.max(taps.pvTot, 1e-30));
@@ -3497,9 +4261,143 @@ function drawScope() {
 window.addEventListener('resize', drawScope);
 if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawScope);
 
+
+// ---- EQ file / HRTF file: parsed here, designed here (biquads, minimum-phase FIRs), only the numbers go to the audio thread ------
+let EQ = null, HR = null;
+const postErr = { eq: '', hr: '' };
+const LS_EQ = LS + '-eq', LS_HR = LS + '-hr';
+const lsGet = (k) => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
+const lsSet = (k, v) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch (e) { /* ignore */ } };
+function decodeText(buf) {
+  const u = new Uint8Array(buf);
+  if (u.length > 1 && u[0] === 0xFF && u[1] === 0xFE) return new TextDecoder('utf-16le').decode(buf);
+  if (u.length > 1 && u[0] === 0xFE && u[1] === 0xFF) return new TextDecoder('utf-16be').decode(buf);
+  return new TextDecoder('utf-8').decode(buf);
+}
+const curNotch = () => ((HR && S.hrOn && S.hrSync && HR.notch) ? HR.notch : 0);
+const postFs = () => (ctx ? ctx.sampleRate : 48000);
+function postSpec(fs) { return DSP.designPost({ eq: EQ, eqOn: S.eqOn, usePre: S.eqPre, hr: HR, hrOn: S.hrOn, hrAmt: (Number(S.hrAmt) || 0) / 100 }, fs); }
+let postTimer = 0;
+function pushPost(now) {
+  clearTimeout(postTimer);
+  const run = () => {
+    if (!ctx) return;
+    let spec; try { spec = postSpec(ctx.sampleRate); } catch (e) { showErr('EQ・HRTFを作れませんでした: ' + e.message); return; }
+    if (node) node.port.postMessage({ type: 'post', spec }); else if (engineMain) engineMain.setPost(spec);
+  };
+  if (now) run(); else postTimer = setTimeout(run, 150);
+}
+function eqLoad(text, name, quiet) {
+  let P = null;
+  try { P = DSP.parseEQ(text); if (!P.filters.length && !P.graphic) P = null; } catch (e) { P = null; }
+  if (!P) { postErr.eq = '使えるフィルタが見つかりませんでした。'; renderPostMsgs(); return false; }
+  postErr.eq = ''; EQ = P; S.eqName = name || '';
+  if (!quiet) { S.eqOn = true; lsSet(LS_EQ, text.length < 400000 ? text : ''); save(); pushPost(true); }
+  renderPost(); return true;
+}
+function hrLoad(text, name, quiet) {
+  let P = null;
+  try { P = DSP.hrParse(text, name); P.notch = DSP.hrNotchOf(P) || 0; } catch (e) { P = null; postErr.hr = '読み込めませんでした: ' + e.message; }
+  if (!P) { renderPostMsgs(); return false; }
+  postErr.hr = ''; HR = P; S.hrName = name || '';
+  if (!quiet) { S.hrOn = true; lsSet(LS_HR, text.length < 400000 ? text : ''); save(); pushPost(true); pushParams(); }
+  renderPost(); return true;
+}
+function drawCurves(cv, series, marks) {
+  if (!cv || !cv.clientWidth) return;
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const css = getComputedStyle(document.documentElement), col = (n) => css.getPropertyValue(n).trim();
+  const pl = 30, pr = 8, pt = 8, pb = 18, w = W - pl - pr, h = H - pt - pb, FL = 20, FH = 20000, xf = (f) => pl + Math.log(f / FL) / Math.log(FH / FL) * w;
+  let lim = 6; const xs = []; for (let i = 0; i < 240; i++) xs.push(FL * Math.pow(FH / FL, i / 239));
+  const vals = series.map((sr) => xs.map(sr.fn)); for (const v of vals) for (const d of v) if (isFinite(d)) lim = Math.max(lim, Math.abs(d));
+  lim = Math.ceil(lim / 3) * 3; const yf = (d) => pt + (1 - (d + lim) / (2 * lim)) * h;
+  g.font = '10px ' + col('--font-num'); g.lineWidth = 1; g.fillStyle = col('--muted'); g.textAlign = 'right';
+  for (const d of [-lim, 0, lim]) { g.strokeStyle = col('--line'); g.beginPath(); g.moveTo(pl, yf(d)); g.lineTo(W - pr, yf(d)); g.stroke(); g.fillText((d > 0 ? '+' : '') + d, pl - 4, yf(d) + 3); }
+  g.textAlign = 'center';
+  for (const [f, t] of [[100, '100'], [1000, '1k'], [10000, '10k']]) { g.strokeStyle = col('--line'); g.beginPath(); g.moveTo(xf(f), pt); g.lineTo(xf(f), pt + h); g.stroke(); g.fillText(t, xf(f), H - 5); }
+  series.forEach((sr, si) => {
+    g.strokeStyle = col(sr.color); g.lineWidth = 2; g.lineJoin = 'round'; g.beginPath();
+    xs.forEach((f, i) => { const y = yf(Math.max(-lim, Math.min(lim, vals[si][i]))); i ? g.lineTo(xf(f), y) : g.moveTo(xf(f), y); }); g.stroke();
+  });
+  for (const f of marks || []) { g.strokeStyle = col('--muted'); g.setLineDash([3, 3]); g.beginPath(); g.moveTo(xf(f), pt); g.lineTo(xf(f), pt + h); g.stroke(); g.setLineDash([]); }
+}
+function eqDraw() {
+  const cv = $('eqCv'); if (!cv) return;
+  if (!EQ) { drawCurves(cv, [], []); return; }
+  const fs = postFs(), pre = DSP.eqPreDb(EQ, S.eqPre, fs);
+  drawCurves(cv, [{ fn: (f) => DSP.eqDb(EQ, f, fs) + pre, color: '--wall' }], []);
+}
+function hrDraw() {
+  const cv = $('hrCv'); if (!cv) return;
+  if (!HR) { drawCurves(cv, [], []); return; }
+  const amt = (Number(S.hrAmt) || 0) / 100;
+  drawCurves(cv, [{ fn: (f) => DSP.hrDb(HR, 'L', f, amt), color: '--wall' }, { fn: (f) => DSP.hrDb(HR, 'R', f, amt), color: '--floor' }], HR.notch ? [HR.notch] : []);
+}
+function renderPostMsgs() {
+  const em = $('eqMsg'), hm = $('hrMsg');
+  em.className = 'msg' + (postErr.eq ? ' err' : ''); hm.className = 'msg' + (postErr.hr ? ' err' : '');
+  if (postErr.eq) em.textContent = postErr.eq;
+  else if (!EQ) em.textContent = 'まだ読み込んでいません。';
+  else {
+    const pre = DSP.eqPreDb(EQ, S.eqPre, postFs());
+    em.textContent = (S.eqName ? S.eqName + '：' : '') + 'フィルタ ' + EQ.filters.length + ' 個' + (EQ.graphic ? '、GraphicEQ ' + EQ.graphic.length + ' 点' : '') + '。プリアンプ ' + pre.toFixed(1) + ' dB。' + (EQ.notes.length ? ' ' + EQ.notes.join(' / ') : '');
+  }
+  if (postErr.hr) hm.textContent = postErr.hr;
+  else if (!HR) hm.textContent = 'まだ読み込んでいません。';
+  else {
+    let lo = 0, hi = 0; const amt = (Number(S.hrAmt) || 0) / 100;
+    for (const ch of ['L', 'R']) for (let i = 0; i < 200; i++) { const d = DSP.hrDb(HR, ch, 20 * Math.pow(1000, i / 199), amt); lo = Math.min(lo, d); hi = Math.max(hi, d); }
+    hm.textContent = (S.hrName ? S.hrName + '：' : '') + '左 ' + HR.curves.L[0].length + ' 点、右 ' + HR.curves.R[0].length + ' 点。補正の幅は ' + lo.toFixed(1) + '〜' + (hi >= 0 ? '+' : '') + hi.toFixed(1) + ' dB。';
+  }
+  $('hrNotchTxt').textContent = !HR ? 'ファイルを読み込むと、くぼみの位置が出ます。' : (HR.notch ? 'このファイルの耳のくぼみ：約 ' + (HR.notch / 1000).toFixed(2) + ' kHz。' : 'このファイルには、はっきりしたくぼみ (5〜11 kHz) がありません。標準の位置を使います。');
+  $('eqPreTxt').textContent = EQ ? 'いまのプリアンプ：' + DSP.eqPreDb(EQ, S.eqPre, postFs()).toFixed(1) + ' dB。EQで持ち上げた分だけ音量を下げて、音割れを防ぎます。' : 'EQで持ち上げた分だけ音量を下げて、音割れを防ぎます。';
+}
+let hrAmtBuilt = false;
+function renderPost() {
+  if (!hrAmtBuilt) { hrAmtBuilt = true; $('hrAmtBox').innerHTML = ctlRow('hrAmt', 'p_') + '<div class="hint">100 %でファイルのとおりです。0 %で補正なし。強くかけると音割れしやすいので、そのときは出力ゲインを下げてください。</div>'; }
+  $('eqOn').setAttribute('aria-pressed', String(!!(EQ && S.eqOn))); $('hrOn').setAttribute('aria-pressed', String(!!(HR && S.hrOn)));
+  $('eqPre').checked = !!S.eqPre; $('hrSync').checked = !!S.hrSync;
+  const ul = $('eqFlt'); ul.innerHTML = '';
+  if (EQ) for (const f of EQ.filters) { const li = document.createElement('li'); li.innerHTML = `<span>${f.type} ${f.fc >= 1000 ? (f.fc / 1000).toFixed(2) + 'k' : f.fc}</span><b>${f.gain > 0 ? '+' : ''}${f.gain.toFixed(1)} dB · Q ${(f.bw ? f.bw + 'oct' : f.q.toFixed(2))}</b>`; ul.appendChild(li); }
+  renderPostMsgs(); eqDraw(); hrDraw();
+}
+function readFile(inputId, cb) {
+  $(inputId).onchange = async (ev) => {
+    const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; if (!f) return;
+    if (f.size > 4e6) { showErr('ファイルが大きすぎます (4 MBまで)。'); return; }
+    try { cb(decodeText(await f.arrayBuffer()), f.name); } catch (e) { showErr('読み込めませんでした: ' + e.message); }
+  };
+}
+$('eqPick').onclick = () => $('eqFile').click(); $('hrPick').onclick = () => $('hrFile').click();
+readFile('eqFile', (t, n) => eqLoad(t, n, false)); readFile('hrFile', (t, n) => hrLoad(t, n, false));
+$('eqPaste').onclick = () => { const t = $('eqText').value; if (t.trim()) eqLoad(t, '貼り付け', false); };
+$('hrPaste').onclick = () => { const t = $('hrText').value; if (t.trim()) hrLoad(t, '貼り付け', false); };
+$('eqClear').onclick = () => { EQ = null; S.eqOn = false; S.eqName = ''; postErr.eq = ''; lsSet(LS_EQ, ''); save(); pushPost(true); renderPost(); };
+$('hrClear').onclick = () => { HR = null; S.hrOn = false; S.hrName = ''; postErr.hr = ''; lsSet(LS_HR, ''); save(); pushPost(true); pushParams(); renderPost(); };
+$('eqOn').onclick = () => { if (!EQ) { postErr.eq = '先にEQファイルを読み込んでください。'; renderPostMsgs(); return; } postErr.eq = ''; S.eqOn = !S.eqOn; save(); pushPost(true); renderPost(); };
+$('hrOn').onclick = () => { if (!HR) { postErr.hr = '先にHRTFファイルを読み込んでください。'; renderPostMsgs(); return; } postErr.hr = ''; S.hrOn = !S.hrOn; save(); pushPost(true); pushParams(); renderPost(); };
+$('eqPre').onchange = () => { S.eqPre = $('eqPre').checked; save(); pushPost(true); renderPostMsgs(); eqDraw(); };
+$('hrSync').onchange = () => { S.hrSync = $('hrSync').checked; save(); pushParams(); renderPostMsgs(); };
+{ const t = lsGet(LS_EQ); if (t) eqLoad(t, S.eqName, true); const h = lsGet(LS_HR); if (h) hrLoad(h, S.hrName, true); if (!EQ) S.eqOn = false; if (!HR) S.hrOn = false; }
+window.addEventListener('resize', () => { eqDraw(); hrDraw(); });
+
+// Pro 21: the room that was asked for, or why it cannot be built
+function p21Msgs(prm) {
+  const info = $('p21info'), err = $('p21err'); if (!info || S.mode !== 'pro21') return;
+  const e = DSP.pro21Check(prm);
+  err.hidden = !e; err.textContent = e ? 'この設定では部屋を作れません (前の設定のままです)：' + e : '';
+  if (e) { info.textContent = ''; return; }
+  try {
+    const ev = DSP.pro21Events(prm), first = Math.min(...ev.map((x) => x.base_delay_ms)), dir = ev[0].direct_path_m;
+    info.textContent = `直接音の道のり ${dir.toFixed(2)} m ・ 反射 ${ev.length} 本 ・ 最初の反射は直接音より ${first.toFixed(1)} ms あと`;
+  } catch (x) { info.textContent = ''; }
+}
+
 // ---- start ---------------------------------------------------------------------------------------------------------
-fillModes(); syncUi(); tapsNote();
-$('foot').textContent = 'ExoSpace の Bauer クロスフィード v3 と Pro 10〜17 の空間モードを、PC版のコードから移植したものです。最終判断は自分の耳で。';
+fillModes(); syncUi(); tapsNote(); try { p21Msgs(buildParams().prm); } catch (e) { /* ignore */ }
+$('foot').textContent = 'ExoSpace の Bauer クロスフィード v3 と Pro 10〜17・AIR 8・Pro 21 の空間モード、EQ・HRTFの読み込みを、PC版のコードから移植したものです。最終判断は自分の耳で。';
 try { benchmark(48000); } catch (e) { /* ignore */ }
 updateStatus();
 requestAnimationFrame(drawScope);
