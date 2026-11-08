@@ -75,6 +75,16 @@ input[type=range] { width: 100%; min-width: 0; accent-color: var(--wall); height
 .btn.round { width: 44px; padding: 0; border-radius: 50%; }
 .btn.play { width: 60px; height: 60px; border-radius: 50%; background: var(--on); color: var(--on-ink); border-color: var(--on); font-size: 20px; padding: 0; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.srch { width: 100%; min-height: 44px; background: var(--bg); color: inherit; border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; margin: 8px 0; font: inherit; }
+.lib { display: grid; gap: 0; margin: 8px 0; max-height: 60vh; overflow-y: auto; border-top: 1px solid var(--line); }
+.lib .fh { position: sticky; top: 0; background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 700; padding: 8px 2px 4px; overflow-wrap: anywhere; }
+.lib .tr { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; border-bottom: 1px solid var(--line); }
+.lib .tr button.go { text-align: left; border: 0; background: transparent; color: inherit; padding: 10px 2px; min-height: 48px; min-width: 0; font: inherit; }
+.lib .tr .tt { display: block; overflow-wrap: anywhere; font-weight: 500; }
+.lib .tr .ts { display: block; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.lib .tr.now .tt { color: var(--wall); font-weight: 700; }
+.lib .tr button.del { border: 0; background: transparent; color: var(--muted); width: 40px; min-height: 44px; font-size: 18px; }
+.row button[aria-pressed=true] { background: var(--on); color: var(--on-ink); }
 .row .btn { flex: 1 1 auto; }
 
 .seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
@@ -104,6 +114,8 @@ canvas { display: block; width: 100%; height: 150px; }
 .hint { color: var(--muted); font-size: 12px; margin: -2px 0 4px; }
 .group { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
 details summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
+details.more { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 4px; }
+details.more > summary { font-weight: 700; padding: 10px 0 6px; }
 select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 0 10px; }
 .notice { background: var(--warn-bg); color: var(--warn-ink); border-radius: 12px; padding: 12px 14px; font-size: 13px; display: grid; gap: 8px; }
 .notice button { justify-self: start; }
@@ -153,16 +165,42 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
       <button class="btn round" id="next" aria-label="次の曲">⏭</button>
     </div>
     <div class="row">
-      <button class="btn" id="pick">曲を選ぶ</button>
-      <button class="btn" id="demo">デモ音</button>
+      <button class="btn" id="shuf" aria-pressed="false">シャッフル: 切</button>
+      <button class="btn" id="rep" aria-pressed="false">くり返し: 切</button>
     </div>
-    <input type="file" id="files" accept="audio/*" multiple hidden>
     <div class="err" id="err" role="status" hidden></div>
   </section>
 
-  <section aria-label="処理">
+  <section class="group" aria-label="ライブラリ" id="libSec">
+    <h2>ライブラリ <span class="num" id="libCount"></span></h2>
+    <div class="hint">一度取り込んだ曲はこの端末に保存され、次からは選び直さずに探して再生できます。どの曲も、空間処理を通して鳴ります。</div>
+    <div class="row">
+      <button class="btn" id="addDir">フォルダーを取り込む</button>
+      <button class="btn" id="addFiles">ファイルを追加</button>
+      <button class="btn" id="demo">デモ音</button>
+    </div>
+    <input type="file" id="dirIn" webkitdirectory directory multiple hidden>
+    <input type="file" id="files" accept="audio/*,.flac,.m4a,.mp3,.wav,.aac,.ogg,.opus" multiple hidden>
+    <div class="msg" id="libMsg" hidden></div>
+    <input type="search" id="libQ" class="srch" placeholder="曲名・アーティスト・フォルダーで探す" aria-label="ライブラリを検索" autocomplete="off">
+    <div class="row"><select id="libFolder" aria-label="フォルダーで絞り込み"></select><select id="libSort" aria-label="並び順">
+      <option value="folder">フォルダー順</option><option value="name">曲名順</option><option value="added">追加が新しい順</option></select></div>
+    <div id="libList" class="lib" role="list"></div>
+    <button class="btn" id="libMore" hidden>もっと表示</button>
+    <details class="more"><summary>ライブラリの管理</summary>
+      <div class="hint" id="libStore"></div>
+      <button class="btn" id="libClear">取り込んだ曲をすべて消す</button>
+      <div class="msg err" id="libClearAsk" hidden>本当に消しますか? 元のファイルは消えません。<div class="row"><button class="btn" id="libClearYes">消す</button><button class="btn" id="libClearNo">やめる</button></div></div>
+    </details>
+  </section>
+
+  <section aria-label="処理" class="group">
     <h2>聴き比べ</h2>
-    <div class="seg" role="group" aria-label="原音とExoSpace">
+    <div class="sw">
+      <div class="t"><b>空間処理を必ず通す</b><span>入れておくと、原音に切り替えられません。聴き比べたいときは切ってください。</span></div>
+      <button class="tog" id="lockFx" aria-pressed="true" aria-label="空間処理を必ず通す"></button>
+    </div>
+    <div class="seg" role="group" aria-label="原音とExoSpace" id="segBox">
       <button id="segDry" aria-pressed="false">原音</button>
       <button id="segFx" aria-pressed="true">ExoSpace</button>
     </div>
@@ -191,40 +229,22 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     <input type="file" id="tapsFile" accept=".json,application/json" hidden>
   </section>
 
-  <section class="group" aria-label="クロスフィード" id="bauerSec">
-    <h2>クロスフィード</h2>
-    <div class="sw">
-      <div class="t"><b>クロスフィード</b><span>直接音だけに掛けます。反射には掛けません。</span></div>
-      <button class="tog" id="bauerOn" aria-pressed="true" aria-label="クロスフィード"></button>
-    </div>
-    <div class="seg3" role="group" aria-label="クロスフィードの方式">
-      <button id="bmExo" aria-pressed="true">ExoSpace方式 (Bauer v3)</button>
-      <button id="bmBs" aria-pressed="false">bs2b式</button>
-    </div>
-    <div class="hint" id="bmNote"></div>
-    <div id="bxExo"></div>
-    <div id="bxBs" hidden></div>
-    <div class="row" id="bxPresets"></div>
-  </section>
-
   <section class="group" aria-label="空間" id="spaceSec">
     <h2 id="spaceH">空間 Pro 11 v4</h2>
     <div class="sw">
       <div class="t"><b>空間</b><span id="spaceSub">8つの壁反射、床・天井、残響。</span></div>
       <button class="tog" id="spatialOn" aria-pressed="true" aria-label="空間"></button>
     </div>
+    <details class="more" id="spaceMore"><summary>空間の詳細設定</summary>
     <div id="p11ctl">
       <div class="ctl"><label for="er_db">反射の大きさ</label><output id="o_er_db"></output>
         <input type="range" id="er_db" min="-40" max="0" step="0.5"></div>
       <div class="ctl"><label for="late_db">残響の大きさ</label><output id="o_late_db"></output>
         <input type="range" id="late_db" min="-45" max="0" step="0.5"></div>
-      <div class="ctl"><label for="rt_low">残響の長さ 低域</label><output id="o_rt_low"></output>
-        <input type="range" id="rt_low" min="0.2" max="6" step="0.05"></div>
-      <div class="ctl"><label for="rt_high">残響の長さ 高域</label><output id="o_rt_high"></output>
-        <input type="range" id="rt_high" min="0.1" max="6" step="0.05"></div>
-      <div class="ctl"><label for="vert">床・天井の反射</label><output id="o_vert"></output>
-        <input type="range" id="vert" min="0" max="0.8" step="0.01"></div>
-      <div class="hint">0 にすると Pro 11 v3 と同じ音になります。</div>
+        <div class="ctl"><label for="geom">部屋の形</label><span></span>
+          <select id="geom"></select></div>
+        <div class="ctl"><label for="dist">スピーカーまでの距離</label><output id="o_dist"></output>
+          <select id="dist"></select></div>
     </div>
     <div id="modeCtl"></div>
     <div id="dirBox">
@@ -232,10 +252,58 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
         <div class="t"><b>スピーカー指向性</b><span>反射と残響の高域を、スピーカーの向きに合わせて落とします。</span></div>
         <button class="tog" id="dirOn" aria-pressed="true" aria-label="スピーカー指向性"></button>
       </div>
+    </div>
+    <div id="p11more">
+      <div class="ctl"><label for="rt_low">残響の長さ 低域</label><output id="o_rt_low"></output>
+        <input type="range" id="rt_low" min="0.2" max="6" step="0.05"></div>
+      <div class="ctl"><label for="rt_high">残響の長さ 高域</label><output id="o_rt_high"></output>
+        <input type="range" id="rt_high" min="0.1" max="6" step="0.05"></div>
+      <div class="ctl"><label for="vert">床・天井の反射</label><output id="o_vert"></output>
+        <input type="range" id="vert" min="0" max="0.8" step="0.01"></div>
+      <div class="hint">床・天井の反射を 0 にすると Pro 11 v3 と同じ音になります。</div>
+      <div id="p11detail">
+        <div class="ctl"><label for="itd_ms">反射の左右時間差の上限</label><output id="o_itd_ms"></output>
+          <input type="range" id="itd_ms" min="0" max="2" step="0.05"></div>
+        <div class="ctl"><label for="coh_lf">残響の左右の似かた 低域</label><output id="o_coh_lf"></output>
+          <input type="range" id="coh_lf" min="0" max="0.95" step="0.01"></div>
+        <div class="ctl"><label for="coh_hf">残響の左右の似かた 高域</label><output id="o_coh_hf"></output>
+          <input type="range" id="coh_hf" min="0" max="0.95" step="0.01"></div>
+        <div class="ctl"><label for="ceiling_m">天井の高さ</label><output id="o_ceiling_m"></output>
+          <input type="range" id="ceiling_m" min="1.8" max="6" step="0.1"></div>
+        <div class="ctl"><label for="ear_m">耳の高さ</label><output id="o_ear_m"></output>
+          <input type="range" id="ear_m" min="0.6" max="1.8" step="0.05"></div>
+        <div class="ctl"><label for="elev">高さの音色変化</label><output id="o_elev"></output>
+          <input type="range" id="elev" min="0" max="1" step="0.05"></div>
+              </div>
+    </div>
+    <div id="modeMore"></div>
+    <div id="dirMore">
       <div class="ctl"><label for="mat_dir_strength">指向性の強さ</label><output id="o_mat_dir_strength"></output>
         <input type="range" id="mat_dir_strength" min="0" max="1.5" step="0.05"></div>
     </div>
+    </details>
   </section>
+
+  <section class="group" aria-label="クロスフィード" id="bauerSec">
+    <h2>クロスフィード</h2>
+    <div class="sw">
+      <div class="t"><b>クロスフィード</b><span>直接音だけに掛けます。反射には掛けません。</span></div>
+      <button class="tog" id="bauerOn" aria-pressed="true" aria-label="クロスフィード"></button>
+    </div>
+    <details class="more" id="bxMore"><summary>クロスフィードの詳細設定</summary>
+    <div class="seg3" role="group" aria-label="クロスフィードの方式">
+      <button id="bmExo" aria-pressed="true">ExoSpace方式 (Bauer v3)</button>
+      <button id="bmBs" aria-pressed="false">bs2b式</button>
+    </div>
+    <div class="hint" id="bmNote"></div>
+    <div class="row" id="bxPresets"></div>
+    <div id="bxExo"></div>
+    <div id="bxBs" hidden></div>
+    <div id="bxExoMore"></div>
+    <div id="bxBsMore" hidden></div>
+    </details>
+  </section>
+
 
   <section class="group" aria-label="EQとHRTF" id="postSec">
     <h2>EQ・HRTF (最後に掛けます)</h2>
@@ -289,24 +357,6 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     <details>
       <summary>詳細設定</summary>
       <div style="display:grid; gap:6px; padding-top:8px">
-        <div id="p11detail" style="display:grid; gap:6px">
-        <div class="ctl"><label for="geom">部屋の形</label><span></span>
-          <select id="geom"></select></div>
-        <div class="ctl"><label for="dist">スピーカーまでの距離</label><output id="o_dist"></output>
-          <select id="dist"></select></div>
-        <div class="ctl"><label for="itd_ms">反射の左右時間差の上限</label><output id="o_itd_ms"></output>
-          <input type="range" id="itd_ms" min="0" max="2" step="0.05"></div>
-        <div class="ctl"><label for="coh_lf">残響の左右の似かた 低域</label><output id="o_coh_lf"></output>
-          <input type="range" id="coh_lf" min="0" max="0.95" step="0.01"></div>
-        <div class="ctl"><label for="coh_hf">残響の左右の似かた 高域</label><output id="o_coh_hf"></output>
-          <input type="range" id="coh_hf" min="0" max="0.95" step="0.01"></div>
-        <div class="ctl"><label for="ceiling_m">天井の高さ</label><output id="o_ceiling_m"></output>
-          <input type="range" id="ceiling_m" min="1.8" max="6" step="0.1"></div>
-        <div class="ctl"><label for="ear_m">耳の高さ</label><output id="o_ear_m"></output>
-          <input type="range" id="ear_m" min="0.6" max="1.8" step="0.05"></div>
-        <div class="ctl"><label for="elev">高さの音色変化</label><output id="o_elev"></output>
-          <input type="range" id="elev" min="0" max="1" step="0.05"></div>
-        </div>
         <div class="sw">
           <div class="t"><b>聴こえかたの調整 (ch)</b><span>下の5つを、モードごとの設定に反映します。</span></div>
           <button class="tog" id="chOn" aria-pressed="true" aria-label="ch"></button>
@@ -3793,32 +3843,40 @@ for (const [k, v] of Object.entries(SPEC)) if (!(k in DEFAULTS)) DEFAULTS[k] = v
 const MODES = {
   pro10v3: { name: 'Pro 10 v3', bauer: true, dir: true,
     note: 'Pro 10 v2.0 に、頭部モデルの反射を足した版。軽くて素直な響きです。',
+    main: ['p10v3_er_db', 'p10v3_late_db'],
     ctl: ['p10v3_er_db', 'p10v3_late_db', 'p10v3_head', 'pro10_fdn_send', 'field_trans', 'field_vol', 'adaptive_transient_sensitivity'] },
   pro11v4: { name: 'Pro 11 v4', bauer: true, p11: true,
     note: '部屋の形から計算した8つの壁反射と、床・天井の反射、残響。いつもの音です。', ctl: [] },
   pro12v2: { name: 'Pro 12 v2', bauer: true, dir: true, fdn: true,
     note: '1つの帯域で作る初期反射と、残響時間から決める残響。',
+    main: ['fdn_mix', 'pro12v2_rt_low', 'pro12v2_rt_high'],
     ctl: ['geom_morph', 'field_trans', 'field_vol', 'room_bright', 'fdn_mix', 'pro12v2_rt_low', 'pro12v2_rt_high'] },
   pro13: { name: 'Pro 13', bauer: true, dir: true, fdn: true,
     note: '部屋の形をなめらかに変えられる版。アタックでは空間を引っ込めます。',
+    main: ['geom_morph', 'fdn_mix', 'room_bright'],
     ctl: ['geom_morph', 'field_trans', 'field_vol', 'adaptive_transient_sensitivity', 'room_bright', 'fdn_mix'] },
   pro14v2: { name: 'Pro 14 v2', bauer: true, dir: true, fdn: true,
     note: 'Pro 13 の残響に、頭部モデルの8つの新しい反射と、左右にばらけた残響を足した版。',
+    main: ['geom_morph', 'p14v2_er_db', 'p14v2_late_db'],
     ctl: ['geom_morph', 'field_trans', 'field_vol', 'adaptive_transient_sensitivity', 'pro14_spectral_sens', 'pro14_edvn_decay_darkness',
       'pro14_fdn_send', 'p14v2_er', 'p14v2_er_db', 'p14v2_late_db', 'p14v2_velvet_decor'] },
   pro15: { name: 'Pro 15 (v16.4)', replace: true,
     note: '耳の形(耳道・耳介)の凹みを使い、12・18・32 ms の反射と8本の残響を作ります。直接音も作り直すのでクロスフィードは使いません。',
+    main: ['fdn_mix', 'geom_morph', 'pro15_darkness'],
     ctl: ['fdn_mix', 'geom_morph', 'pro15_low_cutoff', 'pro15_trans_sens', 'pro15_darkness', 'p_canal_freq'] },
   pro16: { name: 'Pro 16', replace: true,
     note: 'Pro 15 に、曲の中身(アタック・持続音・声・低音)を見分けて空間の量を変える仕組みを足した版。クロスフィードは使いません。',
+    main: ['fdn_mix', 'pro16_darkness', 'pro16_source_adapt'],
     ctl: ['fdn_mix', 'geom_morph', 'pro16_low_cutoff', 'pro16_trans_sens', 'pro16_darkness', 'p_canal_freq',
       'pro16_source_adapt', 'pro16_transient_hold_ms', 'pro16_late_floor', 'pro16_vocal_release'] },
   pro17: { name: 'Pro 17', replace: true, fdn: true,
     note: '部屋の寸法と、音源・聴き手の位置から直接音と初期反射を計算し、後ろに残響を足します。クロスフィードは使いません。',
+    main: ['pro17_er_mix', 'fdn_mix', 'pro17_fdn_rt60', 'wall_abs'],
     ctl: ['pro17_source_x', 'pro17_source_z', 'pro17_source_y', 'pro17_listener_yaw_deg', 'pro17_room_width', 'pro17_room_depth', 'pro17_room_height',
       'wall_abs', 'pro17_er_mix', 'pro17_direct_mix', 'pro17_side_preserve', 'fdn_mix', 'pro17_fdn_rt60', 'fdn_lpf'], dither: true },
   air8: { name: 'AIR 8', replace: true,
     note: '直接音と、頭部モデルの反射(14+4本)、16本の残響、空気感の層を作り直します。8〜28 ms の主な反射を持ち上げ、正面の初期反射(CER)と低域の整え(LFSan)も選べます。クロスフィードは使いません。',
+    main: ['pro15_airiness', 'pro15_air_lev', 'air8_main_db', 'fdn_mix'],
     ctl: ['fdn_mix', 'pro15_low_cutoff', 'pro15_darkness', 'pro15_airiness', 'pro15_air_asw', 'pro15_air_lev', 'pro15_air_tep', 'pro15_air_natural',
       'air8_main_db', 'air8_tail_db', 'air8_lf_decor', 'air8_cer', 'air8_cer_ms', 'air8_cer_comp', 'air8_lfsan', 'air8_lfsan_r0',
       'air6_distance', 'air6_morph', 'air5_itdg_ms', 'air5_er_style', 'air5_ceiling', 'air5_late_er_db', 'air5_side_hf', 'air6_shape',
@@ -3826,13 +3884,14 @@ const MODES = {
       'air4_unmask', 'air5_unmask_spread', 'air4_late_coh', 'air4_direct_ext'] },
   pro21: { name: 'Pro 21', bauer: true, dir: true, extra: 'p21',
     note: '部屋の寸法と、左右2本の仮想スピーカー・聴き手の位置から、壁・床・天井の反射(1回と2回、最大48本)を計算します。残響は Pro 11 v3 と同じです。クロスフィードは直接音に掛けます。',
+    main: ['p21_er_db', 'p21_order', 'late_db', 'rt_low'],
     ctl: ['p21_er_db', 'p21_order', 'p21_room_width', 'p21_room_front', 'p21_room_back', 'p21_room_height',
       'p21_listener_x', 'p21_listener_y', 'p21_listener_z', 'p21_listener_yaw_deg',
       'p21_speaker_distance', 'p21_speaker_azimuth_deg', 'p21_speaker_height',
       'p21_head_radius', 'p21_head_shadow', 'p21_elevation_strength',
       'late_db', 'rt_low', 'rt_high', 'coh_lf', 'coh_hf'] },
   cfonly: { name: 'クロスフィードのみ', bauer: true, hideSpace: true, openBauer: true,
-    note: '空間を作らず、クロスフィードだけを掛けます。上の「クロスフィード」で、方式と各値を細かく決められます。EQ・HRTFも使えます。', ctl: [] },
+    note: '空間を作らず、クロスフィードだけを掛けます。下の「クロスフィード」で、方式と各値を細かく決められます。EQ・HRTFも使えます。', ctl: [] },
 };
 const curMode = () => MODES[S.mode] || MODES.pro11v4;
 const FMT = {
@@ -3847,6 +3906,7 @@ for (const [k, v] of Object.entries(SPEC)) FMT[k] = (x) => x.toFixed(v[6]) + v[5
 FMT.mat_dir_strength = (v) => Math.round(v * 100) + ' %'; FMT.p_front = FMT.p_height = (v) => v.toFixed(0);
 let S = Object.assign({}, DEFAULTS);
 try { Object.assign(S, JSON.parse(localStorage.getItem(LS) || '{}')); } catch (e) { /* storage unavailable */ }
+if (S.lockFx === undefined) S.lockFx = true;
 S.bypass = false;
 const save = () => { try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) { /* ignore */ } };
 
@@ -3969,45 +4029,216 @@ function updateStatus() {
   $('status').textContent = ctx ? `${(fs / 1000).toFixed(1)} kHz · ${mode}` + (loadPct != null ? ` · 負荷 約${loadPct.toFixed(0)}%` : '') : '未起動';
 }
 
-// ---- playlist -----------------------------------------------------------------------------------------------------
-const list = []; let cur = -1;
+// ---- library (IndexedDB) + queue ---------------------------------------------------------------------------------
+// meta store: one small record per track; blob store: the file itself (same id). The queue is what plays next.
+const AUDIO_RE = /\.(mp3|m4a|aac|wav|flac|ogg|oga|opus|weba|webm|mp4|aif|aiff)$/i;
+const DB = {
+  db: null, ok: true,
+  open() {
+    return this.db ? Promise.resolve(this.db) : new Promise((res, rej) => {
+      let r; try { r = indexedDB.open('exospace-lib', 1); } catch (e) { this.ok = false; return rej(e); }
+      r.onupgradeneeded = () => { const d = r.result; d.createObjectStore('meta', { keyPath: 'id', autoIncrement: true }); d.createObjectStore('blob'); };
+      r.onsuccess = () => { this.db = r.result; res(r.result); };
+      r.onerror = () => { this.ok = false; rej(r.error); };
+    });
+  },
+  async tx(stores, mode, fn) {
+    const d = await this.open();
+    return new Promise((res, rej) => { const t = d.transaction(stores, mode); let out; t.oncomplete = () => res(out); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error || new Error('abort')); out = fn(t); });
+  },
+  getAllMeta() { return this.open().then((d) => new Promise((res, rej) => { const r = d.transaction('meta').objectStore('meta').getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); })); },
+  getBlob(id) { return this.open().then((d) => new Promise((res, rej) => { const r = d.transaction('blob').objectStore('blob').get(id); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); })); },
+  async add(meta, blob) {   // meta first (gives the id), then the blob under the same id; one transaction so a half-added track cannot exist
+    const d = await this.open();
+    return new Promise((res, rej) => {
+      const t = d.transaction(['meta', 'blob'], 'readwrite'); let id;
+      const rq = t.objectStore('meta').add(meta); rq.onsuccess = () => { id = rq.result; t.objectStore('blob').put(blob, id); };
+      t.oncomplete = () => res(id); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error || new Error('abort'));
+    });
+  },
+  del(id) { return this.tx(['meta', 'blob'], 'readwrite', (t) => { t.objectStore('meta').delete(id); t.objectStore('blob').delete(id); }); },
+  clear() { return this.tx(['meta', 'blob'], 'readwrite', (t) => { t.objectStore('meta').clear(); t.objectStore('blob').clear(); }); },
+};
+let lib = [];                 // all meta records
+let queue = []; let cur = -1; // queue items: { id } for a library track, or { url, name } for the demo
+let curUrl = null, shuffleOn = false, repeatMode = 0;   // repeat: 0 off, 1 all, 2 one
 const fmtT = (s) => { if (!isFinite(s)) return '0:00'; s = Math.max(0, Math.floor(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 function showErr(msg) { const e = $('err'); e.textContent = msg || ''; e.hidden = !msg; }
+const metaOf = (id) => lib.find((m) => m.id === id);
 
-function setTrack(i, autoplay) {
-  if (i < 0 || i >= list.length) return;
-  cur = i;
-  const t = list[i];
-  audio.src = t.url;
-  $('trackTitle').textContent = t.name;
-  $('trackSub').textContent = `${i + 1} / ${list.length}`;
-  $('seek').disabled = false;
-  showErr('');
-  if ('mediaSession' in navigator) { try { navigator.mediaSession.metadata = new MediaMetadata({ title: t.name, artist: 'ExoSpace Mobile' }); } catch (e) { /* ignore */ } }
+// tags: ID3v2 (mp3 and friends) and FLAC Vorbis comments; anything else falls back to the file name
+function utf8(b) { try { return new TextDecoder('utf-8').decode(b); } catch (e) { return ''; } }
+function id3Text(b) {
+  if (!b.length) return ''; const enc = b[0], d = b.subarray(1); let t = '';
+  try {
+    if (enc === 0) t = new TextDecoder('windows-1252').decode(d); else if (enc === 3) t = utf8(d);
+    else if (enc === 1) { const le = !(d[0] === 0xFE && d[1] === 0xFF); t = new TextDecoder(le ? 'utf-16le' : 'utf-16be').decode(d.subarray(d[0] === 0xFF || d[0] === 0xFE ? 2 : 0)); }
+    else if (enc === 2) t = new TextDecoder('utf-16be').decode(d);
+  } catch (e) { return ''; }
+  return t.replace(/\0+$/g, '').replace(/\0/g, ' / ').trim();
+}
+async function readTags(file) {
+  const out = {};
+  try {
+    const buf = new Uint8Array(await file.slice(0, 262144).arrayBuffer());
+    if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) {                         // "ID3"
+      const ver = buf[3], size = ((buf[6] & 127) << 21) | ((buf[7] & 127) << 14) | ((buf[8] & 127) << 7) | (buf[9] & 127);
+      let p = 10; const end = Math.min(buf.length, 10 + size);
+      while (p + 10 < end) {
+        const id = String.fromCharCode(buf[p], buf[p + 1], buf[p + 2], buf[p + 3]); if (!/^[A-Z0-9]{4}$/.test(id)) break;
+        const fs = ver === 4 ? ((buf[p + 4] & 127) << 21) | ((buf[p + 5] & 127) << 14) | ((buf[p + 6] & 127) << 7) | (buf[p + 7] & 127) : (buf[p + 4] * 16777216 + (buf[p + 5] << 16) + (buf[p + 6] << 8) + buf[p + 7]);
+        if (fs <= 0 || p + 10 + fs > buf.length) break;
+        const body = buf.subarray(p + 10, p + 10 + fs);
+        if (id === 'TIT2') out.title = id3Text(body); else if (id === 'TPE1') out.artist = id3Text(body); else if (id === 'TALB') out.album = id3Text(body);
+        p += 10 + fs;
+      }
+    } else if (buf[0] === 0x66 && buf[1] === 0x4C && buf[2] === 0x61 && buf[3] === 0x43) {   // "fLaC"
+      let p = 4;
+      while (p + 4 < buf.length) {
+        const last = buf[p] & 128, type = buf[p] & 127, len = (buf[p + 1] << 16) | (buf[p + 2] << 8) | buf[p + 3];
+        if (type === 4 && p + 4 + len <= buf.length) {
+          const dv = new DataView(buf.buffer, buf.byteOffset + p + 4, len); let q = 0; const vl = dv.getUint32(q, true); q += 4 + vl; const n = dv.getUint32(q, true); q += 4;
+          for (let i = 0; i < n && q + 4 <= len; i++) {
+            const l = dv.getUint32(q, true); q += 4; const kv = utf8(buf.subarray(p + 4 + q, p + 4 + q + l)); q += l; const e = kv.indexOf('='); if (e < 0) continue;
+            const k = kv.slice(0, e).toUpperCase(), v = kv.slice(e + 1).trim();
+            if (k === 'TITLE') out.title = v; else if (k === 'ARTIST') out.artist = v; else if (k === 'ALBUM') out.album = v;
+          }
+        }
+        if (last) break; p += 4 + len;
+      }
+    }
+  } catch (e) { /* no tags */ }
+  return out;
+}
+
+let importing = false;
+async function importFiles(files, fromDir) {
+  if (importing) return;
+  const fl = files.filter((f) => AUDIO_RE.test(f.name) || (f.type && f.type.startsWith('audio/')));
+  if (!fl.length) { libMsg('音楽ファイルが見つかりませんでした。'); return; }
+  importing = true; let added = 0, skipped = 0, failed = 0, firstId = null;
+  const have = new Set(lib.map((m) => m.key));
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ignore */ }
+  for (let i = 0; i < fl.length; i++) {
+    const f = fl[i], rel = f.webkitRelativePath || '', parts = rel ? rel.split('/') : [], folder = parts.length > 1 ? parts.slice(0, -1).join('/') : '(フォルダーなし)';
+    const key = folder + '/' + f.name + '/' + f.size;
+    libMsg(`取り込み中 ${i + 1} / ${fl.length}  (追加 ${added}、すでにある ${skipped})`);
+    if (have.has(key)) { skipped++; continue; }
+    try {
+      const tg = await readTags(f);
+      const meta = { key, name: f.name.replace(/\.[^.]+$/, ''), title: tg.title || '', artist: tg.artist || '', album: tg.album || '', folder, size: f.size, added: Date.now() + i };
+      meta.id = await DB.add(meta, f); lib.push(meta); have.add(key); added++; if (firstId === null) firstId = meta.id;
+    } catch (e) {
+      failed++;
+      if (e && /quota/i.test(String(e.name) + String(e.message))) { libMsg('保存できる容量がいっぱいです。ここまでで止めました。'); break; }
+    }
+  }
+  importing = false;
+  libMsg(`取り込み完了: 追加 ${added} 曲` + (skipped ? `、すでにある ${skipped} 曲` : '') + (failed ? `、失敗 ${failed} 曲` : '') + '。');
+  renderLib(); updateStore();
+  if (firstId !== null && queue.length === 0) { const vis = visibleTracks(); const k = vis.findIndex((m) => m.id === firstId); startQueue(vis, k < 0 ? 0 : k, false); }
+}
+function libMsg(t) { const m = $('libMsg'); m.textContent = t || ''; m.hidden = !t; }
+async function updateStore() {
+  const tot = lib.reduce((a, m) => a + (m.size || 0), 0); let q = '';
+  try { if (navigator.storage && navigator.storage.estimate) { const e = await navigator.storage.estimate(); q = `。この端末で使える容量の目安: 約 ${(e.quota / 1e9).toFixed(1)} GB (使用中 約 ${(e.usage / 1e9).toFixed(2)} GB)`; } } catch (e) { /* ignore */ }
+  $('libStore').textContent = `取り込み済み ${lib.length} 曲、合計 約 ${(tot / 1e6).toFixed(0)} MB${q}`;
+}
+
+// the list on screen
+const titleOf = (m) => m.title || m.name;
+const subOf = (m) => [m.artist, m.album].filter(Boolean).join(' · ') || m.folder;
+let shown = 200;
+function visibleTracks() {
+  const q = $('libQ').value.trim().toLowerCase(), fo = $('libFolder').value, so = $('libSort').value;
+  let v = lib.filter((m) => (!fo || m.folder === fo) && (!q || (titleOf(m) + ' ' + m.artist + ' ' + m.album + ' ' + m.folder + ' ' + m.name).toLowerCase().includes(q)));
+  const nat = new Intl.Collator('ja', { numeric: true, sensitivity: 'base' });
+  if (so === 'name') v.sort((a, b) => nat.compare(titleOf(a), titleOf(b)));
+  else if (so === 'added') v.sort((a, b) => b.added - a.added);
+  else v.sort((a, b) => nat.compare(a.folder, b.folder) || nat.compare(a.name, b.name));
+  return v;
+}
+function fillFolders() {
+  const sel = $('libFolder'), keep = sel.value, fs = Array.from(new Set(lib.map((m) => m.folder))).sort((a, b) => a.localeCompare(b, 'ja', { numeric: true }));
+  sel.innerHTML = '<option value="">すべてのフォルダー (' + lib.length + ')</option>' + fs.map((f) => `<option value="${f.replace(/"/g, '&quot;')}">${f.replace(/</g, '&lt;')}</option>`).join('');
+  sel.value = fs.includes(keep) ? keep : '';
+}
+let shownList = [];
+function renderLib() {
+  fillFolders();
+  $('libCount').textContent = lib.length ? lib.length + ' 曲' : '';
+  const v = visibleTracks(); shownList = v; const box = $('libList'); box.innerHTML = '';
+  if (!lib.length) { box.innerHTML = '<div class="hint" style="padding:10px 2px">まだ曲がありません。「フォルダーを取り込む」か「ファイルを追加」で入れてください。</div>'; $('libMore').hidden = true; return; }
+  if (!v.length) { box.innerHTML = '<div class="hint" style="padding:10px 2px">見つかりませんでした。</div>'; $('libMore').hidden = true; return; }
+  const frag = document.createDocumentFragment(); let lastF = null; const nowId = queue[cur] && queue[cur].id;
+  const so = $('libSort').value;
+  v.slice(0, shown).forEach((m, i) => {
+    if (so === 'folder' && m.folder !== lastF) { lastF = m.folder; const h = document.createElement('div'); h.className = 'fh'; h.textContent = m.folder; frag.appendChild(h); }
+    const row = document.createElement('div'); row.className = 'tr' + (m.id === nowId ? ' now' : ''); row.setAttribute('role', 'listitem'); row.dataset.id = m.id;
+    const go = document.createElement('button'); go.className = 'go'; go.dataset.i = i;
+    const tt = document.createElement('span'); tt.className = 'tt'; tt.textContent = titleOf(m); const ts = document.createElement('span'); ts.className = 'ts'; ts.textContent = subOf(m);
+    go.append(tt, ts); const dl = document.createElement('button'); dl.className = 'del'; dl.dataset.id = m.id; dl.textContent = '×'; dl.setAttribute('aria-label', titleOf(m) + ' をライブラリから外す');
+    row.append(go, dl); frag.appendChild(row);
+  });
+  box.appendChild(frag); $('libMore').hidden = v.length <= shown; $('libMore').textContent = `もっと表示 (残り ${v.length - shown} 曲)`;
+}
+$('libList').addEventListener('click', async (ev) => {
+  const go = ev.target.closest('button.go'), del = ev.target.closest('button.del');
+  if (go) startQueue(shownList, +go.dataset.i, true);
+  else if (del) { const id = +del.dataset.id; try { await DB.del(id); } catch (e) { /* ignore */ } lib = lib.filter((m) => m.id !== id); queue = queue.filter((q, i) => { if (q.id === id && i < cur) cur--; return q.id !== id; }); renderLib(); updateStore(); }
+});
+$('libMore').onclick = () => { shown += 200; renderLib(); };
+for (const id of ['libQ', 'libFolder', 'libSort']) $(id).addEventListener(id === 'libQ' ? 'input' : 'change', () => { shown = 200; renderLib(); });
+$('addDir').onclick = () => $('dirIn').click();
+$('addFiles').onclick = () => $('files').click();
+$('dirIn').onchange = (ev) => { const f = Array.from(ev.target.files || []); ev.target.value = ''; importFiles(f, true); };
+$('files').onchange = (ev) => { const f = Array.from(ev.target.files || []); ev.target.value = ''; importFiles(f, false); };
+$('libClear').onclick = () => { $('libClearAsk').hidden = false; };
+$('libClearNo').onclick = () => { $('libClearAsk').hidden = true; };
+$('libClearYes').onclick = async () => { $('libClearAsk').hidden = true; audio.pause(); try { await DB.clear(); } catch (e) { /* ignore */ } lib = []; queue = []; cur = -1; $('trackTitle').textContent = '曲が選ばれていません'; $('trackSub').textContent = ''; renderLib(); updateStore(); };
+
+// the queue: what is shown in the list at the moment you tap a track
+function startQueue(tracks, i, autoplay) { queue = tracks.map((m) => ({ id: m.id })); setTrack(i, autoplay); }
+function pickNext(dir) {
+  if (!queue.length) return -1;
+  if (shuffleOn && queue.length > 1) { let k; do { k = Math.floor(Math.random() * queue.length); } while (k === cur); return k; }
+  const n = cur + dir; if (n >= 0 && n < queue.length) return n;
+  return repeatMode === 1 ? (n < 0 ? queue.length - 1 : 0) : -1;
+}
+let trackSeq = 0;
+async function setTrack(i, autoplay) {
+  if (i < 0 || i >= queue.length) return;
+  cur = i; const q = queue[i], my = ++trackSeq; let name, sub, artist = '';
+  if (q.id !== undefined) {
+    const m = metaOf(q.id); if (!m) return;
+    name = titleOf(m); sub = subOf(m); artist = m.artist;
+    let blob; try { blob = await DB.getBlob(q.id); } catch (e) { blob = null; }
+    if (my !== trackSeq) return;
+    if (!blob) { showErr('この曲を読み出せませんでした。'); return; }
+    const url = URL.createObjectURL(blob); if (curUrl) URL.revokeObjectURL(curUrl); curUrl = url; audio.src = url;
+  } else { name = q.name; sub = 'デモ'; audio.src = q.url; }
+  $('trackTitle').textContent = name; $('trackSub').textContent = sub + (queue.length > 1 ? `  (${i + 1} / ${queue.length})` : '');
+  $('seek').disabled = false; showErr('');
+  if ('mediaSession' in navigator) { try { navigator.mediaSession.metadata = new MediaMetadata({ title: name, artist: artist || 'ExoSpace Mobile' }); } catch (e) { /* ignore */ } }
+  for (const r of $('libList').querySelectorAll('.tr.now')) r.classList.remove('now');
+  if (q.id !== undefined) { const r = $('libList').querySelector(`.tr[data-id="${q.id}"]`); if (r) r.classList.add('now'); }
   if (autoplay) play();
 }
 async function play() {
   try {
     await initAudio();
-    if (cur < 0 && list.length) setTrack(0, false);
+    if (cur < 0 && queue.length) await setTrack(0, false);
     await audio.play();
   } catch (e) { showErr('再生できませんでした。この形式を端末が読めない可能性があります。' + (e && e.message ? ' (' + e.message + ')' : '')); }
 }
 function toggle() { if (audio.paused) play(); else audio.pause(); }
+$('shuf').onclick = () => { shuffleOn = !shuffleOn; $('shuf').setAttribute('aria-pressed', String(shuffleOn)); $('shuf').textContent = 'シャッフル: ' + (shuffleOn ? '入' : '切'); };
+$('rep').onclick = () => { repeatMode = (repeatMode + 1) % 3; $('rep').setAttribute('aria-pressed', String(repeatMode > 0)); $('rep').textContent = 'くり返し: ' + ['切', '全曲', '1曲'][repeatMode]; };
 
-$('pick').onclick = () => $('files').click();
-$('files').onchange = (ev) => {
-  const fs = Array.from(ev.target.files || []);
-  if (!fs.length) return;
-  const first = list.length;
-  for (const f of fs) list.push({ name: f.name.replace(/\.[^.]+$/, ''), url: URL.createObjectURL(f) });
-  setTrack(first, true);
-  ev.target.value = '';
-};
 $('play').onclick = toggle;
-$('prev').onclick = () => { if (audio.currentTime > 3 || cur <= 0) audio.currentTime = 0; else setTrack(cur - 1, true); };
-$('next').onclick = () => { if (cur + 1 < list.length) setTrack(cur + 1, true); };
-audio.addEventListener('ended', () => { if (cur + 1 < list.length) setTrack(cur + 1, true); });
+$('prev').onclick = () => { const n = pickNext(-1); if (audio.currentTime > 3 || n < 0) audio.currentTime = 0; else setTrack(n, true); };
+$('next').onclick = () => { const n = pickNext(1); if (n >= 0) setTrack(n, true); };
+audio.addEventListener('ended', () => { if (repeatMode === 2) { audio.currentTime = 0; play(); return; } const n = pickNext(1); if (n >= 0) setTrack(n, true); });
 let wake = null;
 audio.addEventListener('play', async () => { $('play').textContent = '❚❚'; $('play').setAttribute('aria-label', '一時停止'); try { if (navigator.wakeLock) wake = await navigator.wakeLock.request('screen'); } catch (e) { /* ignore */ } });
 audio.addEventListener('pause', () => { $('play').textContent = '▶'; $('play').setAttribute('aria-label', '再生'); try { if (wake) wake.release(); } catch (e) { /* ignore */ } wake = null; });
@@ -4055,7 +4286,7 @@ function makeDemoWav() {
   }
   return URL.createObjectURL(new Blob([out.buffer], { type: 'audio/wav' }));
 }
-$('demo').onclick = () => { list.push({ name: 'デモ音 (左右に振った撥弦)', url: makeDemoWav() }); audio.loop = false; setTrack(list.length - 1, true); };
+$('demo').onclick = () => { queue = [{ name: 'デモ音 (左右に振った撥弦)', url: makeDemoWav() }]; audio.loop = false; setTrack(0, true); };
 
 // ---- controls -------------------------------------------------------------------------------------------------------
 const SLIDERS = ['p_front', 'p_height', 'mat_dir_strength', 'er_db', 'late_db', 'rt_low', 'rt_high', 'vert', 'gain_db', 'itd_ms', 'coh_lf', 'coh_hf', 'p_envelop', 'p_live', 'p_intimate', 'ceiling_m', 'ear_m', 'elev'];
@@ -4064,6 +4295,7 @@ function syncUi() {
   for (const k of ['bauerOn', 'spatialOn']) $(k).setAttribute('aria-pressed', String(!!S[k]));
   $('dirOn').setAttribute('aria-pressed', String(!!S.mat_dir_on)); $('chOn').setAttribute('aria-pressed', String(!!S.ch_enabled));
   renderMode(); renderBauer(); refreshCtls(); renderPost();
+  $('lockFx').setAttribute('aria-pressed', String(!!S.lockFx)); $('segBox').hidden = !!S.lockFx;
   $('segDry').setAttribute('aria-pressed', String(!!S.bypass)); $('segFx').setAttribute('aria-pressed', String(!S.bypass));
   fillGeom();
   $('o_dist').textContent = FMT.dist(S.dist);
@@ -4110,21 +4342,24 @@ function renderMode() {
   const M = curMode(), box = $('modeCtl');
   $('mode').value = S.mode; $('modeNote').textContent = M.note;
   $('spaceH').textContent = '空間 ' + M.name;
-  $('scopeSec').hidden = !M.p11; $('p11ctl').hidden = !M.p11; $('p11detail').hidden = !M.p11;
+  $('scopeSec').hidden = !M.p11; $('p11ctl').hidden = !M.p11; $('p11more').hidden = !M.p11;
   $('bauerSec').hidden = !!M.replace;
   $('spaceSec').hidden = !!M.hideSpace;
-  $('dirBox').hidden = !M.dir;
+  $('dirBox').hidden = !M.dir; $('dirMore').hidden = !M.dir;
   $('spaceSub').textContent = M.p11 ? '8つの壁反射、床・天井、残響。' : (M.replace ? 'このモードが直接音から作り直します。' : '反射と残響を直接音に足します。');
   if (builtFor !== S.mode) {
-    builtFor = S.mode; box.innerHTML = '';
+    builtFor = S.mode; box.innerHTML = ''; $('modeMore').innerHTML = '';
     const add = (html) => box.insertAdjacentHTML('beforeend', html);
+    const addMore = (html) => $('modeMore').insertAdjacentHTML('beforeend', html);
+    const main = new Set(M.ctl);
     if (M.fdn) add('<div class="sw"><div class="t"><b>残響 (FDN)</b><span>切ると初期反射だけになります。</span></div><button class="tog" id="fdnOn" aria-pressed="true" aria-label="残響"></button></div>');
-    if (M.dither) add('<div class="sw"><div class="t"><b>聴き手のゆらぎ</b><span>ごくわずかに頭を動かしたように、位置を揺らします。</span></div><button class="tog" id="ditherOn" aria-pressed="false" aria-label="ゆらぎ"></button></div>');
+    if (M.dither) addMore('<div class="sw"><div class="t"><b>聴き手のゆらぎ</b><span>ごくわずかに頭を動かしたように、位置を揺らします。</span></div><button class="tog" id="ditherOn" aria-pressed="false" aria-label="ゆらぎ"></button></div>');
     if (M.extra === 'p21') add('<div class="msg" id="p21info"></div><div class="msg err" id="p21err" hidden></div>');
-    for (const k of M.ctl) add(ctlRow(k, 'm_'));
-    if (M.dither) add(ctlRow('pro17_dither_deg', 'm_'));
+    for (const k of M.ctl) if (main.has(k)) add(ctlRow(k, 'm_'));
+    for (const k of M.ctl) if (!main.has(k)) addMore(ctlRow(k, 'm_'));
+    if (M.dither) addMore(ctlRow('pro17_dither_deg', 'm_'));
     if (M.extra === 'p21') {
-      add('<details id="p21walls"><summary>壁の反射係数と空気の吸収</summary><div class="hint">反射係数は音の振幅の割合です (1 = 全部返す)。帯域は、〜500 Hz / 500〜3000 Hz / 3000〜8000 Hz / 8000 Hz〜 です。</div><div class="walls" id="wallGrid"></div><button class="btn small" id="wallReset">初期値に戻す</button></details>');
+      addMore('<details id="p21walls"><summary>壁の反射係数と空気の吸収</summary><div class="hint">反射係数は音の振幅の割合です (1 = 全部返す)。帯域は、〜500 Hz / 500〜3000 Hz / 3000〜8000 Hz / 8000 Hz〜 です。</div><div class="walls" id="wallGrid"></div><button class="btn small" id="wallReset">初期値に戻す</button></details>');
       const g = $('wallGrid'); let h = '<span></span><span class="h">〜500</span><span class="h">〜3k</span><span class="h">〜8k</span><span class="h">8k〜</span>';
       const names = { floor: '床', ceiling: '天井', left: '左壁', right: '右壁', front: '前壁', back: '後壁' };
       for (const w of DSP.P21_SURF) { h += `<span>${names[w]}</span>`; for (let i = 0; i < 4; i++) h += `<input class="nb num" type="number" inputmode="decimal" step="0.01" min="0" max="1.2" data-wall="${w}" data-i="${i}" aria-label="${names[w]} 帯域${i + 1}">`; }
@@ -4144,8 +4379,11 @@ function renderMode() {
   if (M.dither) $('ditherOn').setAttribute('aria-pressed', String(!!S.pro17_dither_on));
   if (M.fdn) $('fdnOn').setAttribute('aria-pressed', String(!!S.fdn_enabled));
   if (M.extra === 'p21') renderWalls();
-  if (M.openBauer) { const d = $('bauerSec'); d.scrollMarginTop = '8px'; }
+  if (M.openBauer && builtForCf !== S.mode) $('bxMore').open = true;
+  builtForCf = S.mode;
 }
+let builtForCf = '';
+function main0(M) { return new Set(M.main || []); }
 function renderWalls() {
   const g = $('wallGrid'); if (!g) return;
   for (const el of g.querySelectorAll('[data-wall]')) { if (el === document.activeElement) continue; const a = S['p21_reflect_' + el.dataset.wall] || DEFAULTS['p21_reflect_' + el.dataset.wall]; el.value = Number(a[+el.dataset.i]).toFixed(2); }
@@ -4155,6 +4393,7 @@ function renderWalls() {
 // the crossfeed: two methods, each with its own controls
 const BX_EXO = ['bauer_depth', 'bauer_fc', 'bauer_angle', 'bauer_q', 'bauer_head', 'bauer_centre', 'bauer_lf_itd', 'bauer_radius'];
 const BX_BS = ['bs2b_fc', 'bs2b_feed_db', 'bs2b_delay_ms'];
+const BX_MAIN = new Set([...BX_EXO, ...BX_BS]);
 const BX_PRESETS = {
   exo: [['元の設定', { bauer_depth: 0.5, bauer_fc: 500, bauer_angle: 30, bauer_q: 0.5, bauer_head: 1, bauer_centre: 1, bauer_lf_itd: 1.5, bauer_radius: 0.0875 }],
         ['遅れ短め', { bauer_fc: 500, bauer_angle: 15, bauer_q: 0.71 }]],
@@ -4164,14 +4403,16 @@ let bxBuilt = false;
 function renderBauer() {
   if (!bxBuilt) {
     bxBuilt = true;
-    $('bxExo').innerHTML = BX_EXO.map((k) => ctlRow(k, 'b_')).join('');
-    $('bxBs').innerHTML = BX_BS.map((k) => ctlRow(k, 'b_')).join('');
+    $('bxExo').innerHTML = BX_EXO.filter((k) => BX_MAIN.has(k)).map((k) => ctlRow(k, 'b_')).join('');
+    $('bxExoMore').innerHTML = BX_EXO.filter((k) => !BX_MAIN.has(k)).map((k) => ctlRow(k, 'b_')).join('');
+    $('bxBs').innerHTML = BX_BS.filter((k) => BX_MAIN.has(k)).map((k) => ctlRow(k, 'b_')).join('');
+    $('bxBsMore').innerHTML = BX_BS.filter((k) => !BX_MAIN.has(k)).map((k) => ctlRow(k, 'b_')).join('');
     $('bmExo').onclick = () => { S.bauer_method = 'exo'; save(); renderBauer(); refreshCtls(); pushParams(); };
     $('bmBs').onclick = () => { S.bauer_method = 'bs2b'; save(); renderBauer(); refreshCtls(); pushParams(); };
   }
   const bs = S.bauer_method === 'bs2b';
   $('bmExo').setAttribute('aria-pressed', String(!bs)); $('bmBs').setAttribute('aria-pressed', String(bs));
-  $('bxExo').hidden = bs; $('bxBs').hidden = !bs;
+  $('bxExo').hidden = bs; $('bxBs').hidden = !bs; $('bxExoMore').hidden = bs; $('bxBsMore').hidden = !bs;
   $('bmNote').textContent = bs ? 'bs2b の公開説明をもとに作り直した方式です。反対の耳へは低い音だけを回し、直接の音にも合わせた補正をかけます。ExoSpace の Bauer v3 とは別の式です。'
     : 'ExoSpace の Bauer v3 クロスフィードと同じ式です。角度から左右の遅れと頭の影を決め、中央の音を保ちます。';
   const pr = $('bxPresets'); pr.innerHTML = '';
@@ -4198,7 +4439,8 @@ for (const k of ['bauerOn', 'spatialOn']) $(k).onclick = () => { S[k] = !S[k]; s
 $('dirOn').onclick = () => { S.mat_dir_on = !S.mat_dir_on; syncUi(); save(); pushParams(); };
 $('chOn').onclick = () => { S.ch_enabled = !S.ch_enabled; syncUi(); save(); pushParams(); };
 $('mode').onchange = () => { S.mode = $('mode').value; syncUi(); save(); pushParams(); setTimeout(() => { try { benchmark(ctx ? ctx.sampleRate : 48000); updateStatus(); } catch (e) { /* ignore */ } }, 80); };
-$('segDry').onclick = () => { S.bypass = true; syncUi(); pushParams(); };
+$('lockFx').onclick = () => { S.lockFx = !S.lockFx; if (S.lockFx) S.bypass = false; syncUi(); save(); pushParams(); };
+$('segDry').onclick = () => { if (S.lockFx) return; S.bypass = true; syncUi(); pushParams(); };
 $('segFx').onclick = () => { S.bypass = false; syncUi(); pushParams(); };
 $('geom').onchange = () => { S.geom = $('geom').value; fillGeom(); S.dist = parseFloat($('dist').value); syncUi(); save(); pushParams(); };
 $('dist').onchange = () => { S.dist = parseFloat($('dist').value); syncUi(); save(); pushParams(); };
@@ -4401,7 +4643,11 @@ $('foot').textContent = 'ExoSpace の Bauer クロスフィード v3 と Pro 10�
 try { benchmark(48000); } catch (e) { /* ignore */ }
 updateStatus();
 requestAnimationFrame(drawScope);
-window.__exo = { get S() { return S; }, get node() { return node; }, get ctx() { return ctx; }, DSP, audio, get mode() { return mode; } };
+(async () => {   // the saved library
+  try { lib = await DB.getAllMeta(); } catch (e) { libMsg('この端末では曲を保存できません(プライベートブラウズなど)。取り込んだ曲は閉じると消えます。'); }
+  renderLib(); updateStore();
+})();
+window.__exo = { get S() { return S; }, get node() { return node; }, get ctx() { return ctx; }, DSP, audio, get mode() { return mode; }, get lib() { return lib; }, get queue() { return queue; } };
 </script>
 <script>if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));}</script>
 </body></html>
