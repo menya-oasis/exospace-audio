@@ -169,6 +169,7 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
       <button class="btn" id="rep" aria-pressed="false">くり返し: 切</button>
     </div>
     <div class="err" id="err" role="status" hidden></div>
+    <div class="err" id="overload" role="status" hidden>この端末では処理が間に合わず、音が途切れたりノイズになったりしています。空間モードを軽いもの (Pro 11 v4・Pro 15・クロスフィードのみ など) にするか、HRTFを切ってください。</div>
   </section>
 
   <section class="group" aria-label="ライブラリ" id="libSec">
@@ -3655,7 +3656,17 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     }
   }
   const _procCore = Engine.prototype.process;
+  // Anti-denormal: digital silence makes the decaying tails (reverb, filters, delay lines) fall into subnormal numbers,
+  // which are 10x+ slower to compute and break up the audio on a phone. A noise floor at -360 dBFS keeps every
+  // state away from them; it is far below anything a DAC can reproduce (24-bit is -144 dBFS).
   Engine.prototype.process = function (inL, inR, outL, outR, n) {
+    if (!this.dnL || this.dnL.length < n) { this.dnL = new Float64Array(n); this.dnR = new Float64Array(n); this.dnSeed = 22222; }
+    const dl = this.dnL, dr = this.dnR; let sd = this.dnSeed;
+    for (let i = 0; i < n; i++) {
+      sd = (sd * 1664525 + 1013904223) >>> 0; dl[i] = inL[i] + (sd - 2147483648) * 4.7e-28;   // +-1e-18
+      sd = (sd * 1664525 + 1013904223) >>> 0; dr[i] = inR[i] + (sd - 2147483648) * 4.7e-28;
+    }
+    this.dnSeed = sd; inL = dl; inR = dr;
     _procCore.call(this, inL, inR, outL, outR, n);
     if (this.post.active || this.post.mix !== 1) this.post.process(outL, outR, n, this.mixBypass);
   };
@@ -3690,11 +3701,42 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
   };
   WetShaper.exact = false;
   class CfOnly { constructor() { this.replaces = false; this.nativeDir = true; } set() {} step(xl, xr, w) { w[0] = 0.0; w[1] = 0.0; } }
+
+  // ---- output safety limiter (app layer, after the engine) -----------------------------------------------------------
+  // Does nothing until the output would pass full scale. Then a 1.5 ms look-ahead, linked-stereo gain ramps down exactly
+  // in time for the peak and recovers over ~80 ms, instead of the hard clipping the browser would do.
+  class Limiter {
+    constructor(fs, thr) {
+      this.fs = fs; this.thr = thr || 0.985; this.D = Math.max(8, Math.round(0.0015 * fs));
+      this.bl = new Float64Array(this.D); this.br = new Float64Array(this.D); this.p = 0;
+      this.g = 1; this.tgt = 1; this.step = 0; this.hold = 0; this.rel = 1 - Math.exp(-1 / (0.08 * fs)); this.reduction = 1;
+    }
+    process(l, r, ol, or, n) {
+      const D = this.D, bl = this.bl, br = this.br, thr = this.thr; let p = this.p, g = this.g, tgt = this.tgt, step = this.step, hold = this.hold, minG = 1;
+      for (let i = 0; i < n; i++) {
+        const xl = l[i], xr = r[i], pk = Math.max(Math.abs(xl), Math.abs(xr));
+        if (pk > thr) {
+          const need = thr / pk;
+          if (need < tgt) tgt = need;
+          step = Math.max(step, (g - tgt) / D); hold = D;
+        }
+        const yl = bl[p], yr = br[p]; bl[p] = xl; br[p] = xr; p = p + 1 === D ? 0 : p + 1;
+        if (g > tgt) { g -= step; if (g <= tgt) { g = tgt; step = 0; } }
+        else if (hold > 0) { if (--hold === 0) tgt = 1; }
+        else if (g < 1) { g += this.rel * (1 - g); if (g > 0.99999) g = 1; }
+        if (g < minG) minG = g;
+        let ol_ = yl * g, or_ = yr * g;
+        if (ol_ > 1) ol_ = 1; else if (ol_ < -1) ol_ = -1; if (or_ > 1) or_ = 1; else if (or_ < -1) or_ = -1;   // last resort
+        ol[i] = ol_; or[i] = or_;
+      }
+      this.p = p; this.g = g; this.tgt = tgt; this.step = step; this.hold = hold; this.reduction = Math.min(this.reduction, minG);
+    }
+  }
   const MODE_CLASSES = { cfonly: CfOnly, pro10v3: Pro10V3, pro12v2: Pro12V2, pro13: Pro13, pro14v2: Pro14V2, pro15: Pro15, pro16: Pro16, pro17: Pro17, air8: Air8, pro21: Pro21 };
   function stepTo(cur, tgt, step) { return cur < tgt ? Math.min(tgt, cur + step) : Math.max(tgt, cur - step); }
 
   return {
-    Engine, MODE_CLASSES, Pro10V3, Pro12V2, Pro13, Pro14V2, Pro15, Pro16, Pro17, Air8, Pro21, WetShaper, wetShapeFir, directivityNodesDb, chValue, GainRamp,
+    Engine, Limiter, MODE_CLASSES, Pro10V3, Pro12V2, Pro13, Pro14V2, Pro15, Pro16, Pro17, Air8, Pro21, WetShaper, wetShapeFir, directivityNodesDb, chValue, GainRamp,
     BauerV3, Bs2b, Fdn, TapSet: makeTapSet, VertTaps, Cascade, calibrationScale,
     designBauerV3, normaliseParams, normaliseV4, levelsDb, rtScale, butterHP2, peaking, shelf, lowpass1,
     DEFAULTS, V4_DEFAULTS, ENGINE_DEFAULTS, FDN_MS, AP_MS,
@@ -3963,8 +4005,8 @@ const WORKLET_TAIL = `
 class ExoProc extends AudioWorkletProcessor {
   constructor() {
     super();
-    this.e = new ExoDSP.Engine(sampleRate);
-    this.z = new Float32Array(128);
+    this.e = new ExoDSP.Engine(sampleRate); this.lim = new ExoDSP.Limiter(sampleRate);
+    this.z = new Float32Array(128); this.busy = 0; this.frames = 0;
     this.port.onmessage = (ev) => { const m = ev.data; if (m.type === 'params') this.e.setParams(m.params, m.geo, m.cal); else if (m.type === 'post') this.e.setPost(m.spec); };
   }
   process(inputs, outputs) {
@@ -3972,7 +4014,15 @@ class ExoProc extends AudioWorkletProcessor {
     const n = o[0].length;
     const l = (i && i[0]) ? i[0] : (this.z.length >= n ? this.z : (this.z = new Float32Array(n)));
     const r = (i && i[1]) ? i[1] : l;
-    this.e.process(l, r, o[0], o[1] || o[0], n);
+    const t0 = Date.now();
+    const oL = o[0], oR = o[1] || o[0];
+    this.e.process(l, r, oL, oR, n);
+    this.lim.process(oL, oR, oL, oR, n);
+    this.busy += Date.now() - t0; this.frames += n;
+    if (this.frames >= sampleRate) {          // once a second: how much of the time budget the engine used, and the limiter
+      this.port.postMessage({ type: 'load', pct: this.busy / (this.frames / sampleRate * 1000) * 100, lim: this.lim.reduction });
+      this.busy = 0; this.frames = 0; this.lim.reduction = 1;
+    }
     return true;
   }
 }
@@ -3989,15 +4039,17 @@ async function initAudio() {
     await ctx.audioWorklet.addModule(url);
     node = new AudioWorkletNode(ctx, 'exo-proc', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
     src.connect(node); node.connect(ctx.destination);
+    node.port.onmessage = (ev) => { const m = ev.data; if (m && m.type === 'load') { liveLoad = m.pct; limDb = 20 * Math.log10(Math.max(1e-6, m.lim)); updateStatus(); } };
     mode = 'AudioWorklet';
   } catch (err) {
     // older browsers, or a page that may not load worklets: same engine on the main thread
-    engineMain = new DSP.Engine(ctx.sampleRate);
+    engineMain = new DSP.Engine(ctx.sampleRate); const limMain = new DSP.Limiter(ctx.sampleRate);
     fallback = ctx.createScriptProcessor(2048, 2, 2);
     fallback.onaudioprocess = (ev) => {
       const a = ev.inputBuffer, b = ev.outputBuffer, n = b.length;
       engineMain.process(a.getChannelData(0), a.numberOfChannels > 1 ? a.getChannelData(1) : a.getChannelData(0),
                          b.getChannelData(0), b.getChannelData(1), n);
+      limMain.process(b.getChannelData(0), b.getChannelData(1), b.getChannelData(0), b.getChannelData(1), n);
     };
     src.connect(fallback); fallback.connect(ctx.destination);
     mode = 'メインスレッド';
@@ -4024,9 +4076,13 @@ function benchmark(fs) {
     loadPct = (performance.now() - t0) / 10;
   } catch (e) { loadPct = null; }
 }
+let liveLoad = null, limDb = 0, overSince = 0;
 function updateStatus() {
-  const fs = ctx ? ctx.sampleRate : null;
-  $('status').textContent = ctx ? `${(fs / 1000).toFixed(1)} kHz · ${mode}` + (loadPct != null ? ` · 負荷 約${loadPct.toFixed(0)}%` : '') : '未起動';
+  const fs = ctx ? ctx.sampleRate : null, ld = liveLoad != null && !audio.paused ? liveLoad : loadPct;
+  $('status').textContent = ctx ? `${(fs / 1000).toFixed(1)} kHz · ${mode}` + (ld != null ? ` · 負荷 約${ld.toFixed(0)}%` : '') + (limDb < -0.05 && !audio.paused ? ` · 音割れ防止 ${limDb.toFixed(1)} dB` : '') : '未起動';
+  // sustained overload: the audio breaks up into noise on this device; say so and what to do
+  if (liveLoad != null && !audio.paused && liveLoad > 85) { if (!overSince) overSince = Date.now(); } else overSince = 0;
+  $('overload').hidden = !(overSince && Date.now() - overSince > 2500);
 }
 
 // ---- library (IndexedDB) + queue ---------------------------------------------------------------------------------
@@ -4107,7 +4163,42 @@ async function readTags(file) {
         if (last) break; p += 4 + len;
       }
     }
+    if (!out.title && buf.length > 8 && String.fromCharCode(buf[4], buf[5], buf[6], buf[7]) === 'ftyp') Object.assign(out, await mp4Tags(file));
   } catch (e) { /* no tags */ }
+  return out;
+}
+// AAC / ALAC in .m4a: walk the top-level boxes (moov is often at the end of the file), then moov/udta/meta/ilst
+async function mp4Tags(file) {
+  const out = {}, rd = async (a, n) => new Uint8Array(await file.slice(a, a + n).arrayBuffer());
+  const u32 = (b, i) => ((b[i] << 24) >>> 0) + (b[i + 1] << 16) + (b[i + 2] << 8) + b[i + 3];
+  const typ = (b, i) => String.fromCharCode(b[i], b[i + 1], b[i + 2], b[i + 3]);
+  let pos = 0, moov = null;
+  for (let k = 0; k < 64 && pos + 8 <= file.size; k++) {
+    const h = await rd(pos, 16); let size = u32(h, 0); const t = typ(h, 4);
+    if (size === 1) size = u32(h, 8) * 4294967296 + u32(h, 12); else if (size === 0) size = file.size - pos;
+    if (size < 8) break;
+    if (t === 'moov') { if (size <= 16 * 1048576) moov = await rd(pos, size); break; }
+    pos += size;
+  }
+  if (!moov) return out;
+  const walk = (b, a, e, path) => {
+    for (let i = a; i + 8 <= e;) {
+      const sz = u32(b, i), t = typ(b, i + 4); if (sz < 8 || i + sz > e) break;
+      if (path === 'ilst') {
+        for (let j = i + 8; j + 16 <= i + sz;) {                       // the 'data' box inside each item
+          const dz = u32(b, j); if (dz < 16 || j + dz > i + sz) break;
+          if (typ(b, j + 4) === 'data') {
+            const v = utf8(b.subarray(j + 16, j + dz)).trim();
+            if (t === '\u00a9nam') out.title = v; else if (t === '\u00a9ART') out.artist = v; else if (t === '\u00a9alb') out.album = v; else if (t === 'aART' && !out.artist) out.artist = v;
+          }
+          j += dz;
+        }
+      } else if (t === 'udta' || t === 'ilst') walk(b, i + 8, i + sz, t);
+      else if (t === 'meta') walk(b, i + 12, i + sz, 'meta');           // meta has 4 bytes of version/flags first
+      i += sz;
+    }
+  };
+  walk(moov, 8, moov.length, 'moov');
   return out;
 }
 

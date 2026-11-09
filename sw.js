@@ -1,6 +1,6 @@
 // the page itself: network first (an updated app arrives at the next visit), cache when offline; other files: cache first.
 // The app works offline after the first visit (the fonts fall back to system fonts)
-const V = 'exospace-mobile-5';
+const V = 'exospace-mobile-7';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-180.png', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(V).then((c) => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== V).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
