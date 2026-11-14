@@ -172,6 +172,12 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     <div class="err" id="overload" role="status" hidden>この端末では処理が間に合わず、音が途切れたりノイズになったりしています。空間モードを軽いもの (Pro 11 v4・Pro 15・クロスフィードのみ など) にするか、HRTFを切ってください。</div>
   </section>
 
+  <section class="group" aria-label="タブの音" id="capSec" hidden>
+    <h2>タブの音 (YouTube など)</h2>
+    <div class="hint" id="capTxt">YouTube などを開いたタブで、ブラウザ右上の ExoSpace のアイコンを押すと、そのタブの音に空間処理を掛けて鳴らします。</div>
+    <div class="row"><button class="btn" id="capStart" hidden>タブの音を取り込む</button><button class="btn" id="capResume" hidden>ここを押して音を出す</button><button class="btn" id="capStop" hidden>取り込みをやめる</button></div>
+  </section>
+
   <section class="group" aria-label="ライブラリ" id="libSec">
     <h2>ライブラリ <span class="num" id="libCount"></span></h2>
     <div class="hint">一度取り込んだ曲はこの端末に保存され、次からは選び直さずに探して再生できます。どの曲も、空間処理を通して鳴ります。</div>
@@ -3974,7 +3980,8 @@ function resolveGeo() {
 
 // ---- audio graph --------------------------------------------------------------------------------------------------
 const audio = $('audio');
-let ctx = null, node = null, fallback = null, engineMain = null, mode = '';
+let ctx = null, node = null, fallback = null, engineMain = null, mode = '', inGain = null;
+const EXT = !!(typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id);   // running as the Chrome / Edge extension page
 let pushTimer = 0;
 
 function buildParams() {
@@ -4032,13 +4039,14 @@ async function initAudio() {
   if (ctx) { if (ctx.state === 'suspended') await ctx.resume(); return; }
   const AC = window.AudioContext || window.webkitAudioContext;
   ctx = new AC({ latencyHint: 'playback' });
-  const src = ctx.createMediaElementSource(audio);
+  const src = ctx.createMediaElementSource(audio); inGain = ctx.createGain(); src.connect(inGain);
   try {
-    const code = $('dsp').textContent + '\n' + WORKLET_TAIL;
-    const url = URL.createObjectURL(new Blob([code], { type: 'application/javascript' }));
+    let url;
+    if (EXT) url = chrome.runtime.getURL('worklet.js');   // an extension page may not load a worklet from a blob
+    else url = URL.createObjectURL(new Blob([$('dsp').textContent + '\n' + WORKLET_TAIL], { type: 'application/javascript' }));
     await ctx.audioWorklet.addModule(url);
     node = new AudioWorkletNode(ctx, 'exo-proc', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
-    src.connect(node); node.connect(ctx.destination);
+    inGain.connect(node); node.connect(ctx.destination);
     node.port.onmessage = (ev) => { const m = ev.data; if (m && m.type === 'load') { liveLoad = m.pct; limDb = 20 * Math.log10(Math.max(1e-6, m.lim)); updateStatus(); } };
     mode = 'AudioWorklet';
   } catch (err) {
@@ -4051,7 +4059,7 @@ async function initAudio() {
                          b.getChannelData(0), b.getChannelData(1), n);
       limMain.process(b.getChannelData(0), b.getChannelData(1), b.getChannelData(0), b.getChannelData(1), n);
     };
-    src.connect(fallback); fallback.connect(ctx.destination);
+    inGain.connect(fallback); fallback.connect(ctx.destination);
     mode = 'メインスレッド';
   }
   if (ctx.state === 'suspended') await ctx.resume();
@@ -4083,6 +4091,62 @@ function updateStatus() {
   // sustained overload: the audio breaks up into noise on this device; say so and what to do
   if (liveLoad != null && !audio.paused && liveLoad > 85) { if (!overSince) overSince = Date.now(); } else overSince = 0;
   $('overload').hidden = !(overSince && Date.now() - overSince > 2500);
+}
+
+
+// ---- tab capture (extension only): the sound of another tab goes through the same engine ---------------------------
+let capStream = null, capSrc = null;
+function capUi(msg, running) {
+  $('capTxt').textContent = msg; $('capStop').hidden = !running; if (CAN_SHARE) $('capStart').hidden = running;
+  $('capResume').hidden = !(running && ctx && ctx.state !== 'running');
+}
+async function startCapture(streamId, title) {   // extension: a handle from chrome.tabCapture
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } }, video: false });
+    await useStream(stream, title);
+  } catch (e) { capUi('取り込めませんでした: ' + (e && e.message ? e.message : e) + '。タブを開いたまま、もう一度アイコンを押してください。', false); }
+}
+async function startShare() {   // web page: the browser's own "share a tab" picker (Chrome / Edge on a computer)
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { suppressLocalAudioPlayback: true, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      selfBrowserSurface: 'exclude', systemAudio: 'exclude', preferCurrentTab: false });
+  } catch (e) { capUi((e && e.name === 'NotAllowedError') ? '取り込めませんでした (選ばれなかったか、このページでは画面共有が許可されていません。公開サイトのURLから開いてください)。' : '取り込めませんでした: ' + (e && e.message ? e.message : e), false); return; }
+  if (!stream.getAudioTracks().length) {
+    for (const t of stream.getTracks()) t.stop();
+    capUi('音が共有されませんでした。もう一度押して、「タブ」を選び、「タブの音声も共有」にチェックを入れてください。', false); return;
+  }
+  try { await useStream(stream, 'タブの音'); } catch (e) { capUi('取り込めませんでした: ' + (e && e.message ? e.message : e), false); }
+}
+async function useStream(stream, title) {
+  await initAudio(); stopCapture(true); audio.pause();
+  capStream = stream; capSrc = ctx.createMediaStreamSource(new MediaStream(stream.getAudioTracks())); capSrc.connect(inGain);
+  const tr = stream.getAudioTracks()[0]; if (tr) tr.onended = () => stopCapture(false);
+  for (const v of stream.getVideoTracks()) v.onended = () => stopCapture(false);     // "stop sharing" in the browser bar
+  $('trackTitle').textContent = title || 'タブの音'; $('trackSub').textContent = 'タブから取り込み中';
+  if (ctx.state !== 'running') { try { await ctx.resume(); } catch (e) { /* needs a click */ } }
+  capUi('取り込み中。元のタブの音は消え、こちらから空間処理した音が出ます。やめるときは下のボタン。', true);
+  updateStatus();
+}
+function stopCapture(silent) {
+  if (capSrc) { try { capSrc.disconnect(); } catch (e) { /* ignore */ } capSrc = null; }
+  if (capStream) { for (const t of capStream.getTracks()) { t.onended = null; t.stop(); } capStream = null; }
+  if (!silent) capUi('取り込みをやめました。タブの音は元に戻ります。', false);
+}
+const CAN_SHARE = !EXT && !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+if (EXT || CAN_SHARE) {
+  $('capSec').hidden = false;
+  $('capStop').onclick = () => stopCapture(false);
+  $('capResume').onclick = async () => { try { await ctx.resume(); } catch (e) { /* ignore */ } capUi($('capTxt').textContent, !!capStream); };
+}
+if (CAN_SHARE) {
+  $('capStart').hidden = false; $('capStart').onclick = startShare;
+  $('capTxt').textContent = 'YouTube などを開いたタブを選ぶと、その音に空間処理を掛けて、ここから鳴らします (Chrome / Edge)。押したあと、出てくる画面で「タブ」を選び、「タブの音声も共有」にチェックを入れてください。';
+}
+if (EXT) {
+  chrome.runtime.onMessage.addListener((m) => { if (m && m.type === 'capture') startCapture(m.streamId, m.title); });
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get('cap')) { const id = h.get('cap'), tt = h.get('title') || ''; history.replaceState(null, '', location.pathname); startCapture(id, tt); }
 }
 
 // ---- library (IndexedDB) + queue ---------------------------------------------------------------------------------
