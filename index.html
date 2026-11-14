@@ -319,6 +319,10 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
       <div class="t"><b>EQファイル</b><span id="eqMsg" class="msg">まだ読み込んでいません。</span></div>
       <button class="tog" id="eqOn" aria-pressed="false" aria-label="EQ"></button>
     </div>
+    <div class="ctl"><label for="eqEngine">EQの掛け方</label><select id="eqEngine">
+      <option value="min">低遅延 (最小位相のフィルタ)</option>
+      <option value="pc">PC版と同じ (長いFIR・fir_design.py)</option></select></div>
+    <div class="msg" id="firInfo" hidden></div>
     <div class="row">
       <button class="btn" id="eqPick">EQファイルを選ぶ</button>
       <button class="btn" id="eqClear">外す</button>
@@ -4247,7 +4251,7 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
   }
   class RoomConv {
     constructor(plan) {
-      this.B = plan.B; this.nTaps = plan.nTaps; this.dry = plan.dry || 0.0;
+      this.B = plan.B; this.nTaps = plan.nTaps; this.dry = plan.dry || 0.0; this.diag = !!plan.diag;   // diag: no cross paths (EQ FIR)
       const pmax = Math.max(...plan.tiers.map((t) => t.P));
       this.hl = new Float64Array(2 * pmax); this.hr = new Float64Array(2 * pmax); this.nblk = 0;
       this.tiers = plan.tiers.map((t) => {
@@ -4277,6 +4281,14 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
       for (let j = j0; j < j1; j++) {
         const slot = (t.head + j) % t.n, xb = slot * 2 * K * 2, hb = j * 4 * K * 2;
         const xL = xb, xR = xb + 2 * K, hLL = hb, hLR = hb + 2 * K, hRL = hb + 4 * K, hRR = hb + 6 * K;
+        if (this.diag) {
+          for (let k = 0; k < 2 * K; k += 2) {
+            const ar = fd[xL + k], ai = fd[xL + k + 1], br = fd[xR + k], bi = fd[xR + k + 1];
+            yl[k] += ar * H[hLL + k] - ai * H[hLL + k + 1]; yl[k + 1] += ar * H[hLL + k + 1] + ai * H[hLL + k];
+            yr[k] += br * H[hRR + k] - bi * H[hRR + k + 1]; yr[k + 1] += br * H[hRR + k + 1] + bi * H[hRR + k];
+          }
+          continue;
+        }
         for (let k = 0; k < 2 * K; k += 2) {
           const ar = fd[xL + k], ai = fd[xL + k + 1], br = fd[xR + k], bi = fd[xR + k + 1];
           yl[k] += ar * H[hLL + k] - ai * H[hLL + k + 1] + br * H[hRL + k] - bi * H[hRL + k + 1];
@@ -4447,6 +4459,287 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     }
   }
 
+  // ======================================================================================================================
+  // PC-style EQ FIR (fir_design.py design_fir_pair): EQ curve (linear / hermite on log f) -> x windowed-sinc HPF / LPF
+  // (filter_ver 2) -> long FIR (frequency sampling + window) -> phase mode (pure | hybrid4 | hybrid5) -> level
+  // normalisation (peak | rms | dc | lufs). Not ported: filter_ver 0 / 1 (firwin2), the JND split, Lanczos sigma,
+  // phase modes hybrid / hybrid2 / hybrid3 (they fall back to pure). The result is a pair of long FIRs (left / right)
+  // that the engine convolves with before the crossfeed / spatial mode, as the PC does. Linear phase => delay of half
+  // the FIR (43200 taps at 44.1 kHz: 0.49 s).
+  // ======================================================================================================================
+  /** complex DFT of any length (Bluestein, power-of-two FFTs inside); sign -1 forward */
+  function fpDft(re, im, inverse) {
+    const n = re.length; if ((n & (n - 1)) === 0) { const r = Float64Array.from(re), i = Float64Array.from(im); rmFft(r, i, inverse); return { re: r, im: i }; }
+    let m = 1; while (m < 2 * n - 1) m <<= 1;
+    const sg = inverse ? 1 : -1, wr = new Float64Array(n), wi = new Float64Array(n);
+    for (let k = 0; k < n; k++) { const a = sg * Math.PI * ((k * k) % (2 * n)) / n; wr[k] = Math.cos(a); wi[k] = Math.sin(a); }   // exp(sg j pi k^2 / n)
+    const ar = new Float64Array(m), ai = new Float64Array(m), br = new Float64Array(m), bi = new Float64Array(m);
+    for (let k = 0; k < n; k++) { ar[k] = re[k] * wr[k] - im[k] * wi[k]; ai[k] = re[k] * wi[k] + im[k] * wr[k]; }
+    br[0] = wr[0]; bi[0] = -wi[0]; for (let k = 1; k < n; k++) { br[k] = br[m - k] = wr[k]; bi[k] = bi[m - k] = -wi[k]; }
+    rmFft(ar, ai, false); rmFft(br, bi, false);
+    for (let k = 0; k < m; k++) { const x = ar[k] * br[k] - ai[k] * bi[k]; ai[k] = ar[k] * bi[k] + ai[k] * br[k]; ar[k] = x; }
+    rmFft(ar, ai, true);
+    const or = new Float64Array(n), oi = new Float64Array(n);
+    for (let k = 0; k < n; k++) { const xr = ar[k] / m, xi = ai[k] / m; or[k] = xr * wr[k] - xi * wi[k]; oi[k] = xr * wi[k] + xi * wr[k]; }
+    return { re: or, im: oi };
+  }
+  /** numpy.fft.rfft(x, n) for any n */
+  function fpRfft(x, n) {
+    if ((n & (n - 1)) === 0) return rmRfft(x, n);
+    const r = new Float64Array(n), z = new Float64Array(n); for (let i = 0; i < Math.min(n, x.length); i++) r[i] = x[i];
+    const X = fpDft(r, z, false), h = Math.floor(n / 2) + 1; return { re: X.re.subarray(0, h).slice(), im: X.im.subarray(0, h).slice() };
+  }
+  /** numpy.fft.irfft(X, n) for any n (Hermitian completion, imaginary parts of DC / Nyquist ignored) */
+  function fpIrfft(re, im, n) {
+    if ((n & (n - 1)) === 0) return rmIrfft(re, im, n);
+    const fr = new Float64Array(n), fi = new Float64Array(n), h = Math.floor(n / 2);
+    for (let k = 0; k <= h; k++) { fr[k] = k < re.length ? re[k] : 0.0; fi[k] = (k === 0 || (n % 2 === 0 && k === h) || k >= im.length) ? 0.0 : im[k]; }
+    for (let k = 1; k < n - h; k++) { if (n - k > h) { fr[n - k] = fr[k]; fi[n - k] = -fi[k]; } }
+    const X = fpDft(fr, fi, true), out = new Float64Array(n); for (let i = 0; i < n; i++) out[i] = X.re[i] / n; return out;
+  }
+  // ---- windows (fir_design._generate_window / scipy.signal.get_window, symmetric) ---------------------------------------
+  function fpI0(x) { let s = 1.0, t = 1.0; for (let k = 1; k < 500; k++) { t *= (x / (2 * k)) * (x / (2 * k)); s += t; if (t < 1e-17 * s) break; } return s; }
+  function fpDpss(M, NW) {                   // scipy.signal.windows.dpss(M, NW) (Kmax None, sym True, norm 'approximate')
+    const W = NW / M, cw = Math.cos(2 * Math.PI * W), d = new Float64Array(M), e = new Float64Array(M);
+    for (let i = 0; i < M; i++) d[i] = Math.pow((M - 1 - 2 * i) / 2.0, 2) * cw;
+    for (let i = 1; i < M; i++) e[i] = i * (M - i) / 2.0;        // e[i] couples i-1 and i
+    // largest eigenvalue by bisection on the Sturm count
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < M; i++) { const r = (i > 0 ? Math.abs(e[i]) : 0) + (i < M - 1 ? Math.abs(e[i + 1]) : 0); lo = Math.min(lo, d[i] - r); hi = Math.max(hi, d[i] + r); }
+    const countBelow = (x) => { let c = 0, q = d[0] - x; if (q < 0) c++; for (let i = 1; i < M; i++) { q = d[i] - x - e[i] * e[i] / (q !== 0 ? q : 1e-300); if (q < 0) c++; } return c; };
+    for (let it = 0; it < 200; it++) { const mid = 0.5 * (lo + hi); if (mid === lo || mid === hi) break; if (countBelow(mid) >= M) hi = mid; else lo = mid; }
+    const lam = 0.5 * (lo + hi);
+    // inverse iteration (Thomas algorithm on T - lam I)
+    let v = new Float64Array(M).fill(1.0 / Math.sqrt(M));
+    const shift = lam + Math.abs(lam) * 1e-14 + 1e-30;
+    for (let it = 0; it < 4; it++) {
+      const c = new Float64Array(M), g = new Float64Array(M), x = new Float64Array(M);
+      let b0 = d[0] - shift; c[0] = (M > 1 ? e[1] : 0) / b0; g[0] = v[0] / b0;
+      for (let i = 1; i < M; i++) { const bi = d[i] - shift - e[i] * c[i - 1]; c[i] = (i < M - 1 ? e[i + 1] : 0) / bi; g[i] = (v[i] - e[i] * g[i - 1]) / bi; }
+      x[M - 1] = g[M - 1]; for (let i = M - 2; i >= 0; i--) x[i] = g[i] - c[i] * x[i + 1];
+      let nrm = 0; for (let i = 0; i < M; i++) nrm += x[i] * x[i]; nrm = Math.sqrt(nrm); for (let i = 0; i < M; i++) x[i] /= nrm; v = x;
+    }
+    let s = 0, mx = -Infinity; for (let i = 0; i < M; i += 2) s += v[i]; if (s < 0) for (let i = 0; i < M; i++) v[i] = -v[i];
+    for (let i = 0; i < M; i++) mx = Math.max(mx, v[i]);
+    const out = new Float64Array(M); for (let i = 0; i < M; i++) out[i] = v[i] / mx;
+    if (M % 2 === 0) {                        // scipy's correction for even lengths
+      const shiftN = 0.5 / M, sh = new Float64Array(M);
+      // (only odd lengths are used by design_fir_pair: num_taps is always odd)
+      return out;
+    }
+    return out;
+  }
+  const FP_WINDOWS = { '1': 'kaiser', '2': 'nuttall', '3': 'hamming', '4': 'blackman', '5': 'hann', '6': 'blackmanharris', '14': ['dpss', 3.0], '15': ['dpss', 4.0] };
+  function fpWindowSpec(c) { const idx = String(c.window_idx != null ? c.window_idx : '1'); if (idx === '1') return ['kaiser', Number(c.kaiser_beta != null ? c.kaiser_beta : 8.6)]; return FP_WINDOWS[idx] || ['kaiser', 8.6]; }
+  const FP_WCACHE = {};
+  function fpWindow(N, spec) {
+    const name = typeof spec === 'string' ? spec : spec[0], key = N + ':' + JSON.stringify(spec);
+    if (FP_WCACHE[key]) return FP_WCACHE[key];
+    let w = new Float64Array(N);
+    if (N < 3) w.fill(1.0);
+    else if (name === 'dpss') w = fpDpss(N, spec[1]);
+    else if (name === 'kaiser') { const b = spec[1] != null ? spec[1] : 8.6, den = fpI0(b); for (let n = 0; n < N; n++) { const r = 2.0 * n / (N - 1) - 1.0; w[n] = fpI0(b * Math.sqrt(Math.max(0, 1 - r * r))) / den; } }
+    else {
+      const M = N - 1;
+      for (let n = 0; n < N; n++) {
+        const c = Math.cos(2 * Math.PI * n / M), c2 = c * c;
+        w[n] = name === 'nuttall' ? 0.355768 - 0.487396 * c + 0.144232 * (2 * c2 - 1) - 0.012604 * (c * (4 * c2 - 3))
+          : name === 'blackmanharris' ? 0.35875 - 0.48829 * c + 0.14128 * (2 * c2 - 1) - 0.01168 * (c * (4 * c2 - 3))
+          : name === 'blackman' ? 0.42 - 0.5 * c + 0.08 * (2 * c2 - 1) : name === 'hann' ? 0.5 - 0.5 * c : 0.54 - 0.46 * c;
+      }
+    }
+    FP_WCACHE[key] = w; return w;
+  }
+  // ---- EQ curve: PCHIP / linear on log f (fir_design._eq_curve_db) ------------------------------------------------------
+  function fpPchip(x, y) {
+    const n = x.length, h = new Float64Array(n - 1), m = new Float64Array(n - 1), d = new Float64Array(n);
+    for (let k = 0; k < n - 1; k++) { h[k] = x[k + 1] - x[k]; m[k] = (y[k + 1] - y[k]) / h[k]; }
+    if (n === 2) { d[0] = d[1] = m[0]; }
+    else {
+      for (let k = 1; k < n - 1; k++) {
+        const a = m[k - 1], b = m[k];
+        if (Math.sign(a) !== Math.sign(b) || a === 0 || b === 0) d[k] = 0.0;
+        else { const w1 = 2 * h[k] + h[k - 1], w2 = h[k] + 2 * h[k - 1]; d[k] = 1.0 / ((w1 / a + w2 / b) / (w1 + w2)); }
+      }
+      const edge = (h0, h1, m0, m1) => { let dd = ((2 * h0 + h1) * m0 - h0 * m1) / (h0 + h1); if (Math.sign(dd) !== Math.sign(m0)) dd = 0.0; else if (Math.sign(m0) !== Math.sign(m1) && Math.abs(dd) > Math.abs(3 * m0)) dd = 3 * m0; return dd; };
+      d[0] = edge(h[0], h[1], m[0], m[1]); d[n - 1] = edge(h[n - 2], h[n - 3], m[n - 2], m[n - 3]);
+    }
+    return (q) => {
+      let i; if (q <= x[0]) i = 0; else if (q >= x[n - 1]) i = n - 2; else { let lo = 0, hi = n - 1; while (hi - lo > 1) { const md = (lo + hi) >> 1; if (x[md] <= q) lo = md; else hi = md; } i = lo; }
+      const t = q - x[i], dx = h[i], tt = (d[i] + d[i + 1] - 2 * m[i]) / dx, c0 = tt / dx, c1 = (m[i] - d[i]) / dx - tt;
+      return ((c0 * t + c1) * t + d[i]) * t + y[i];
+    };
+  }
+  function fpEqCurveDb(eqList, fEval, interp, mix) {
+    const total = new Float64Array(fEval.length);
+    if (!eqList || !eqList.length || String(interp).toLowerCase() === 'off') return total;
+    const kind = ['linear', 'cubic', 'hermite'].includes(interp) ? interp : 'linear';
+    for (const [ef0, eg0] of eqList) {
+      const idx = Array.from(ef0.keys()).sort((a, b) => ef0[a] - ef0[b]);
+      let ef = [], eg = [];
+      for (const i of idx) { if (ef.length && !(ef0[i] > ef[ef.length - 1])) continue; ef.push(ef0[i]); eg.push(eg0[i]); }
+      const keep = ef.map((f) => f > 0); ef = ef.filter((_, i) => keep[i]); eg = eg.filter((_, i) => keep[i]);
+      if (ef.length < 2) { const v = eg.length ? eg[0] : 0.0; for (let k = 0; k < total.length; k++) total[k] += v; continue; }
+      const lx = ef.map(Math.log), f = kind === 'hermite' ? fpPchip(lx, eg) : null;
+      for (let k = 0; k < fEval.length; k++) {
+        const fv = fEval[k]; let v;
+        if (fv < ef[0]) v = eg[0]; else if (fv > ef[ef.length - 1]) v = eg[eg.length - 1];
+        else { const q = Math.log(Math.max(fv, ef[0])); v = f ? f(q) : rmInterp(q, lx, eg); }
+        total[k] += v;
+      }
+    }
+    if (mix === 'avg') for (let k = 0; k < total.length; k++) total[k] /= eqList.length;
+    return total;
+  }
+  // ---- the design ------------------------------------------------------------------------------------------------------------
+  function fpLinspace(a, b, n) { const o = new Float64Array(n), st = (b - a) / (n - 1); for (let i = 0; i < n; i++) o[i] = a + i * st; o[n - 1] = b; return o; }
+  function fpSinc(fs, cutoff, N, win, isHpf) {
+    const nyq = fs / 2.0, t = new Float64Array(N);
+    if ((isHpf && cutoff <= 1.0) || (!isHpf && cutoff >= nyq)) { t[Math.floor(N / 2)] = 1.0; return t; }
+    const oc = Math.PI * cutoff / nyq, w = fpWindow(N, win);
+    for (let i = 0; i < N; i++) { const n = i - (N - 1) / 2.0, x = oc * n, s = x === 0 ? 1.0 : Math.sin(x) / x; t[i] = (oc / Math.PI) * s; }
+    if (isHpf) { for (let i = 0; i < N; i++) t[i] = -t[i]; t[Math.floor(N / 2)] += 1.0; }
+    for (let i = 0; i < N; i++) t[i] *= w[i];
+    return t;
+  }
+  function fpFastFir(N, gain, win) {           // _fast_fir_generate: irfft of the real gain curve, centred, windowed
+    const L = 2 * (gain.length - 1), ir = fpIrfft(gain, new Float64Array(gain.length), L), M = N - 1, hM = Math.floor(M / 2), taps = new Float64Array(N);
+    for (let i = 0; i < hM; i++) taps[i] = ir[L - hM + i];
+    taps[hM] = ir[0];
+    if (N % 2 === 1) for (let i = 1; i <= hM; i++) taps[hM + i] = ir[i]; else for (let i = 1; i < hM; i++) taps[hM + i] = ir[i];
+    const w = fpWindow(N, win); for (let i = 0; i < N; i++) taps[i] *= w[i];
+    return taps;
+  }
+  function fpErbRate(f) { return 21.4 * Math.log10(1.0 + 0.00437 * Math.max(f, 0.0)); }
+  function fpMovingAvg(y, width) {
+    const w = Math.max(1, Math.trunc(width)); if (w <= 1) return y;
+    const n = y.length, c = new Float64Array(n + 1); for (let i = 0; i < n; i++) c[i + 1] = c[i] + y[i];
+    const h = Math.floor(w / 2), o = new Float64Array(n);
+    for (let i = 0; i < n; i++) { const lo = Math.min(Math.max(i - h, 0), n), hi = Math.min(Math.max(i + h + 1, 0), n); o[i] = (c[hi] - c[lo]) / (hi - lo); }
+    return o;
+  }
+  function fpGradient(f, dx) { const n = f.length, g = new Float64Array(n); g[0] = (f[1] - f[0]) / dx; g[n - 1] = (f[n - 1] - f[n - 2]) / dx; for (let i = 1; i < n - 1; i++) g[i] = (f[i + 1] - f[i - 1]) / (2 * dx); return g; }
+  function fpHybrid5Blend(H, fs, fMin) {          // _hybrid5_phase_blend -> phase to add (or null)
+    const preMs = 5.0, fMax = 300.0; fMin = Math.max(0.0, Math.min(fMin, 0.8 * fMax));
+    const nb = H.re.length, nfft = (nb - 1) * 2, df = 1.0 / (nfft * (1.0 / fs)), dOm = 2 * Math.PI * df / fs;
+    const fq = Float64Array.from({ length: nb }, (_, k) => k * df), lm = new Float64Array(nb);
+    for (let k = 0; k < nb; k++) lm[k] = Math.log(Math.max(Math.hypot(H.re[k], H.im[k]), 1e-3));
+    const cep = rmIrfft(lm, new Float64Array(nb), nfft);
+    for (let i = 1; i < nfft / 2; i++) cep[i] *= 2.0; for (let i = nfft / 2 + 1; i < nfft; i++) cep[i] = 0.0;
+    const phiMin = rmRfft(cep, nfft).im, tauMin = fpGradient(phiMin, dOm); for (let k = 0; k < nb; k++) tauMin[k] = -tauMin[k];
+    const tau = fpMovingAvg(tauMin, 50.0 / df); for (let k = 0; k < nb; k++) tau[k] = Math.min(Math.max(tau[k], 0.0), 0.06 * fs);
+    const pre = preMs * 1e-3 * fs, wLvl = new Float64Array(nb), wF = new Float64Array(nb);
+    for (let k = 0; k < nb; k++) {
+      const x = Math.min(Math.max((tau[k] - 0.5 * pre) / pre, 0.0), 1.0); wLvl[k] = x * x * (3.0 - 2.0 * x);
+      const fade = Math.min(Math.max((fMax - fq[k]) / (fMax / 3.0), 0.0), 1.0); let wf = 0.5 - 0.5 * Math.cos(Math.PI * fade);
+      if (fMin > 0.0) { const lo = Math.min(Math.max((fq[k] - 0.5 * fMin) / (0.5 * fMin), 0.0), 1.0); wf *= 0.5 - 0.5 * Math.cos(Math.PI * lo); }
+      wF[k] = wf;
+    }
+    const prod = new Float64Array(nb); for (let k = 0; k < nb; k++) prod[k] = wLvl[k] * wF[k];
+    const w = fpMovingAvg(prod, 20.0 / df);
+    const trap = (y) => { let s = 0; for (let k = 1; k < y.length; k++) s += (y[k] + y[k - 1]) * 0.5; return s * dOm; };
+    let anyAct = false, minTau = Infinity; for (let k = 0; k < nb; k++) if (w[k] > 0.1) { anyAct = true; minTau = Math.min(minTau, tau[k]); }
+    if (trap(w) < 1e-9 || !anyAct) return null;
+    const C = trap(wF), wt = new Float64Array(nb); for (let k = 0; k < nb; k++) wt[k] = w[k] * tau[k];
+    const B = trap(wt), lamT = Math.min(minTau, 0.6 * pre), k0 = Math.floor((lamT * C - B) / (2.0 * Math.PI));
+    let cands = [0, 1].map((j) => (2.0 * Math.PI * (k0 + j) + B) / C); const ok = cands.filter((x) => x <= 0.8 * pre); cands = ok.length ? ok : cands.slice(0, 1);
+    const lam = cands.reduce((a, b) => (Math.abs(b) < Math.abs(a) ? b : a));
+    const phi = new Float64Array(nb); let acc = 0.0;
+    for (let k = 1; k < nb; k++) { const d1 = w[k] * tau[k] - lam * wF[k], d0 = w[k - 1] * tau[k - 1] - lam * wF[k - 1]; acc += (d1 + d0) * 0.5 * dOm; phi[k] = -acc; }
+    return phi;
+  }
+  function fpHybrid5Shaping(f, pa, ha) {
+    const z = fpErbRate(f), pres = Math.max(1.0 - 0.37 * pa * Math.exp(-0.5 * Math.pow((z - fpErbRate(3500.0)) / 1.8, 2)), 0.25);
+    const win = Math.min(Math.max((z - fpErbRate(1500.0)) / 2.0, 0), 1) * Math.min(Math.max((fpErbRate(10000.0) - z) / 2.0, 0), 1);
+    const d = Math.pow(10.0, (1.5 * ha) * Math.cos(Math.PI * z) * win / 20.0), nrm = Math.sqrt((d * d + 1.0 / (d * d)) * 0.5);
+    return [pres * d / nrm, pres / (d * nrm)];
+  }
+  function fpKWeightPower(fs, nb) {
+    const shelf = () => { const G = 3.999843853973347, Q = 0.7071752369554196, fc = 1681.9744509555319, K = Math.tan(Math.PI * fc / fs), Vh = Math.pow(10, G / 20), Vb = Math.pow(Vh, 0.4996667741545416), a0 = 1 + K / Q + K * K;
+      return [[(Vh + Vb * K / Q + K * K) / a0, 2 * (K * K - Vh) / a0, (Vh - Vb * K / Q + K * K) / a0], [1.0, 2 * (K * K - 1) / a0, (1 - K / Q + K * K) / a0]]; };
+    const hpf = () => { const Q = 0.5003270373253953, fc = 38.13547087613982, K = Math.tan(Math.PI * fc / fs), a0 = 1 + K / Q + K * K; return [[1.0, -2.0, 1.0], [1.0, 2 * (K * K - 1) / a0, (1 - K / Q + K * K) / a0]]; };
+    const k = new Float64Array(nb).fill(1.0), w = fpLinspace(0, Math.PI, nb);
+    for (const [b, a] of [shelf(), hpf()]) for (let i = 0; i < nb; i++) {
+      const c1 = Math.cos(w[i]), s1 = -Math.sin(w[i]), c2 = Math.cos(2 * w[i]), s2 = -Math.sin(2 * w[i]);
+      const nr = b[0] + b[1] * c1 + b[2] * c2, ni = b[1] * s1 + b[2] * s2, dr = a[0] + a[1] * c1 + a[2] * c2, di = a[1] * s1 + a[2] * s2;
+      k[i] *= Math.sqrt((nr * nr + ni * ni) / (dr * dr + di * di));
+    }
+    for (let i = 0; i < nb; i++) k[i] *= k[i]; return k;
+  }
+  function fpApplyNormGain(taps, fs, mode) {   // apply_norm -> gain
+    mode = String(mode || 'off').toLowerCase(); if (mode === 'off') return 1.0;
+    const n = 1 << Math.ceil(Math.log2(taps.length * 2)), H = rmRfft(taps, n), nb = H.re.length, mag = new Float64Array(nb);
+    let peak = 0; for (let k = 0; k < nb; k++) { mag[k] = Math.hypot(H.re[k], H.im[k]); peak = Math.max(peak, mag[k]); }
+    let g = 1.0;
+    if (mode === 'peak') g = peak > 1e-12 ? 1.0 / peak : 1.0;
+    else if (mode === 'rms') { let s = 0; for (const v of mag) s += v * v; const r = Math.sqrt(s / nb); g = r > 1e-12 ? 1.0 / r : 1.0; }
+    else if (mode === 'dc') { let dc = 0; for (const v of taps) dc += v; dc = Math.abs(dc); g = dc > 1e-3 * Math.max(peak, 1e-12) ? 1.0 / dc : (peak > 1e-12 ? 1.0 / peak : 1.0); }
+    else if (mode === 'lufs') { const kp = fpKWeightPower(fs, nb); let den = 0, km = 0; for (let k = 0; k < nb; k++) { den += mag[k] * mag[k] * kp[k]; km += kp[k]; } den /= nb; km /= nb; g = den > 1e-24 ? Math.sqrt(km / den) : 1.0; }
+    if (peak > 1e-12 && g * peak > 1.0) g = 1.0 / peak;
+    return g;
+  }
+  /** fir_design.design_fir_pair(config, fs, eq_list) -> {l, r, info} or null (filter OFF). eqList: [[freqs[], gains[]], ...] */
+  function designFirPair(c, fs, eqList, nEval) {
+    nEval = nEval || 32768;
+    if (String(c.filter_ver != null ? c.filter_ver : 'off').toLowerCase() === 'off') return null;
+    let tCount = Math.trunc(Number(c.taps != null ? c.taps : 43200)); if (tCount % 2) tCount += 1;
+    const N = tCount + 1, nyq = fs / 2.0, fEval = fpLinspace(0.0, nyq, nEval), win = fpWindowSpec(c);
+    const notes = [];
+    let fver = parseInt(c.filter_ver, 10); if (!isFinite(fver)) fver = 2;
+    if (fver !== 2) notes.push('filter_ver ' + fver + ' → 2 (この版は v2 のみ)');
+    const totalDb = fpEqCurveDb(eqList, fEval, String(c.interp_mode != null ? c.interp_mode : 'off').toLowerCase(), c.mix_mode || 'avg');
+    const eqGain = Float64Array.from(totalDb, (v) => Math.pow(10, Math.min(Math.max(isFinite(v) ? v : 0, -100), 30) / 20.0));
+    const hpf = Number(c.hpf != null ? c.hpf : 20.0), lpf = Number(c.lpf != null ? c.lpf : 20000.0);
+    const fSrc = fpLinspace(0.0, nyq, Math.floor(N / 2) + 1);
+    const absR = (t) => { const X = fpRfft(t, t.length); return Float64Array.from(X.re, (r, k) => Math.hypot(r, X.im[k])); };
+    const rl = absR(fpSinc(fs, lpf, N, win, false)), rh = absR(fpSinc(fs, hpf, N, win, true));
+    const target = new Float64Array(nEval); for (let k = 0; k < nEval; k++) target[k] = eqGain[k] * rmInterp(fEval[k], fSrc, rl) * rmInterp(fEval[k], fSrc, rh);
+    const phase = String(c.phase_mode || 'pure').toLowerCase(), jnd = String(c.jnd_mode || 'off').toLowerCase();
+    if (!(c.single_pass === undefined || c.single_pass) && jnd !== 'off') notes.push('JND分割 → 一括 (この版は一括のみ)');
+    if (c.sigma_enabled) notes.push('Lanczos σ は未対応');
+    const raw = fpFastFir(N, target, win);
+    let L = raw, R = raw, Cc = null;
+    if (phase === 'hybrid4' || phase === 'hybrid5') {
+      const nfft = 1 << Math.ceil(Math.log2(N * 4)), H = rmRfft(raw, nfft), nb = H.re.length, df = 1.0 / (nfft * (1.0 / fs));
+      const outs = { l: [new Float64Array(nb), new Float64Array(nb)], r: [new Float64Array(nb), new Float64Array(nb)], c: [new Float64Array(nb), new Float64Array(nb)] };
+      if (phase === 'hybrid5') {
+        const phi = fpHybrid5Blend(H, fs, Number(c.h5_min_hz != null ? c.h5_min_hz : 80.0));
+        const ha = Number(c.h4_ha_weight != null ? c.h4_ha_weight : 1.0), pa = Number(c.h4_pa_depth != null ? c.h4_pa_depth : 1.0);
+        for (let k = 0; k < nb; k++) {
+          let hr = H.re[k], hi = H.im[k]; if (phi) { const cs = Math.cos(phi[k]), sn = Math.sin(phi[k]); const t = hr * cs - hi * sn; hi = hr * sn + hi * cs; hr = t; }
+          const [gl, gr] = fpHybrid5Shaping(k * df, pa, ha), gc = Math.sqrt(0.5 * (gl * gl + gr * gr));
+          outs.l[0][k] = hr * gl; outs.l[1][k] = hi * gl; outs.r[0][k] = hr * gr; outs.r[1][k] = hi * gr; outs.c[0][k] = hr * gc; outs.c[1][k] = hi * gc;
+        }
+      } else {                                   // hybrid4 (theta 0): ITD 0, the pinna dip on the left ear, its soft version on the right
+        const pad = Number(c.h4_pa_depth != null ? c.h4_pa_depth : (c.pinna_adjustment != null ? c.pinna_adjustment : 1.0));
+        for (let k = 0; k < nb; k++) {
+          const hz = k * df, dip = hz > 0 ? Math.max(0.05, 1.0 - pad * 0.75 * Math.exp(-((hz - 4000.0) ** 2) / (2.0 * 1200.0 ** 2))) : 1.0, soft = hz > 0 ? 1.0 - (1.0 - dip) * 0.3 : 1.0;
+          outs.l[0][k] = H.re[k] * dip; outs.l[1][k] = H.im[k] * dip; outs.r[0][k] = H.re[k] * soft; outs.r[1][k] = H.im[k] * soft;
+        }
+      }
+      L = rmIrfft(outs.l[0], outs.l[1], nfft).slice(0, N); R = rmIrfft(outs.r[0], outs.r[1], nfft).slice(0, N);
+      if (phase === 'hybrid5') Cc = rmIrfft(outs.c[0], outs.c[1], nfft).slice(0, N);
+    } else if (phase !== 'pure') notes.push('位相モード ' + phase + ' → pure (この版は pure / hybrid4 / hybrid5)');
+    const mode = c.norm_mode || 'off';
+    let gL = 1.0, gR = 1.0;
+    if (phase === 'hybrid5') {
+      if (String(mode).toLowerCase() !== 'off') {
+        let g = fpApplyNormGain(Cc, fs, mode);                     // dot(ref_n, ref) / dot(ref, ref) = the norm gain
+        for (const t of [L, R]) { const n = 1 << Math.ceil(Math.log2(t.length * 2)), X = rmRfft(t, n); let pk = 0; for (let k = 0; k < X.re.length; k++) pk = Math.max(pk, Math.hypot(X.re[k], X.im[k])); if (pk > 1e-12 && g * pk > 1.0) g = 1.0 / pk; }
+        gL = gR = g;
+      }
+    } else { gL = fpApplyNormGain(L, fs, mode); gR = phase === 'hybrid4' ? fpApplyNormGain(R, fs, mode) : gL; }
+    const l = Float64Array.from(L, (v) => v * gL), r = Float64Array.from(R, (v) => v * gR);
+    return { l, r, info: { taps: N, delay_ms: 1000 * (N - 1) / 2 / fs, gain_db: 20 * Math.log10(gL), notes } };
+  }
+  /** fir_design.parse_eq_file on a text: GraphicEQ, or 'freq gain' per line (Filter lines are skipped) -> [freqs, gains] or null */
+  function parseEqPc(text) {
+    const fr = [], gn = [];
+    if (text.indexOf('GraphicEQ:') >= 0) { const pts = text.split('GraphicEQ:')[1].replace(/;/g, ' ').split(/\s+/).filter(Boolean); for (let i = 0; i + 1 < pts.length; i += 2) { fr.push(parseFloat(pts[i])); gn.push(parseFloat(pts[i + 1])); } }
+    else for (const line of text.split(/\r?\n/)) { if (line.indexOf('Filter') >= 0) continue; const p = line.match(/[-+]?\d*\.\d+|\d+/g); if (p && p.length >= 2) { fr.push(parseFloat(p[0])); gn.push(parseFloat(p[1])); } }
+    return fr.length < 2 ? null : [fr, gn];
+  }
+
   class Engine {
     constructor(fs) {
       this.fs = fs;
@@ -4612,8 +4905,8 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
       sd = (sd * 1664525 + 1013904223) >>> 0; dr[i] = inR[i] + (sd - 2147483648) * 4.7e-28;
     }
     this.dnSeed = sd; inL = dl; inR = dr;
-    const post = this.post, ex = this.ex, exOn = !!(ex && ex.on);
-    if (!exOn && !post.eqPre) {                            // EQ (if any) after the spatial mode, as before
+    const post = this.post, ex = this.ex, exOn = !!(ex && ex.on), fir = this.eqFir, firOn = !!(fir && fir.active);
+    if (!exOn && !post.eqPre && !firOn) {                            // EQ (if any) after the spatial mode, as before
       _procCore.call(this, inL, inR, outL, outR, n);
       if (post.active || post.mix !== 1) post.process(outL, outR, n, this.mixBypass);
       return;
@@ -4623,7 +4916,10 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     const [el, er, sl, sr] = this.pb;
     if (post.xl.length < n) { for (const k of ['xl', 'xr', 'al', 'ar', 'bl', 'br']) post[k] = new Float64Array(n); }   // scratch of its stages
     let cl = inL, cr = inR;
-    if (post.eq.active || post.eq.old) { post._stage(post.eq, inL, inR, n, el, er); cl = el; cr = er; }
+    if (firOn) {                                           // PC-style FIR EQ; the dry path is delayed by the FIR's delay
+      if (!this.pbRaw || this.pbRaw[0].length < n) this.pbRaw = [new Float64Array(n), new Float64Array(n)];
+      fir.process(inL, inR, el, er, this.pbRaw[0], this.pbRaw[1], n); cl = el; cr = er; inL = this.pbRaw[0]; inR = this.pbRaw[1];
+    } else if (post.eq.active || post.eq.old) { post._stage(post.eq, inL, inR, n, el, er); cl = el; cr = er; }
     _procCore.call(this, cl, cr, outL, outR, n);
     for (let i = 0; i < n; i++) { sl[i] = outL[i]; sr[i] = outR[i]; }
     if (exOn) ex.process(sl, sr, n);
@@ -4672,6 +4968,37 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
   };
   WetShaper.exact = false;
   class CfOnly { constructor() { this.replaces = false; this.nativeDir = true; } set() {} step(xl, xr, w) { w[0] = 0.0; w[1] = 0.0; } }
+
+  // the PC-style EQ FIR before the spatial mode (designFirPair -> roomConvPlan with no cross paths); the untouched input
+  // for 原音 / the bypass mix is delayed by the same amount, so switching stays in time
+  class EqFirStage {
+    constructor(fs) { this.fs = fs; this.conv = null; this.old = null; this.fadeN = 6144; this.fadeLeft = 0; this.D = 0; this.rl = null; this.rr = null; this.rp = 0; this.tl = new Float64Array(128); this.tr = new Float64Array(128); }
+    get active() { return !!this.conv; }
+    set(plan, delay) {
+      if (!plan) { this.conv = null; this.old = null; return; }
+      const c = new RoomConv(plan);
+      if (this.conv) { this.old = this.conv; this.fadeLeft = this.fadeN; }
+      this.conv = c;
+      delay = Math.max(0, Math.round(delay || 0));
+      if (delay !== this.D || !this.rl) { this.D = delay; this.rl = new Float64Array(Math.max(1, delay)); this.rr = new Float64Array(Math.max(1, delay)); this.rp = 0; }
+    }
+    process(inL, inR, outL, outR, rawL, rawR, n) {
+      for (let o = 0; o < n; o += 128) {
+        const m = Math.min(128, n - o), a = inL.subarray(o, o + m), b = inR.subarray(o, o + m), yl = outL.subarray(o, o + m), yr = outR.subarray(o, o + m);
+        this.conv.process(a, b, yl, yr, m);
+        if (this.old) {
+          this.old.process(a, b, this.tl, this.tr, m);
+          for (let i = 0; i < m; i++) { const w = Math.min(1.0, (this.fadeN - this.fadeLeft + i + 1) / this.fadeN); yl[i] = w * yl[i] + (1 - w) * this.tl[i]; yr[i] = w * yr[i] + (1 - w) * this.tr[i]; }
+          this.fadeLeft -= m; if (this.fadeLeft <= 0) this.old = null;
+        }
+      }
+      const D = this.D, rl = this.rl, rr = this.rr; let p = this.rp;
+      if (D === 0) { for (let i = 0; i < n; i++) { rawL[i] = inL[i]; rawR[i] = inR[i]; } return; }
+      for (let i = 0; i < n; i++) { rawL[i] = rl[p]; rawR[i] = rr[p]; rl[p] = inL[i]; rr[p] = inR[i]; p = p + 1 === D ? 0 : p + 1; }
+      this.rp = p;
+    }
+  }
+  Engine.prototype.setEqFir = function (plan, delay) { if (!this.eqFir) this.eqFir = new EqFirStage(this.fs); this.eqFir.set(plan, delay); };
   // ROOM renders the whole output (the PC skips the crossfeed for it); Pro22 returns only the room part (added to the crossfed direct sound)
   class RoomAlt { constructor(fs) { this.fs = fs; this.replaces = true; this.nativeDir = true; this.rm = new RoomMode(fs); } set() {} block(a, b, c, d, n) { this.rm.process(a, b, c, d, n); } }
   class Pro22Alt { constructor(fs) { this.fs = fs; this.replaces = false; this.nativeDir = true; this.rm = new RoomMode(fs); } set() {} block(a, b, c, d, n) { this.rm.process(a, b, c, d, n); } }
@@ -4716,7 +5043,7 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
   function stepTo(cur, tgt, step) { return cur < tgt ? Math.min(tgt, cur + step) : Math.max(tgt, cur - step); }
 
   return {
-    Engine, Limiter, MODE_CLASSES, ExStage, exHilbert, exButterHp2,
+    Engine, Limiter, MODE_CLASSES, EqFirStage, designFirPair, parseEqPc, fpDpss, fpRfft, fpIrfft, fpPchip, fpWindow, ExStage, exHilbert, exButterHp2,
     buildBrir, rmAssemble, roomResponse, pro22Response, roomBuild, roomCoreConfig, roomConvPlan, RoomConv, RoomMode, rmRfft, rmIrfft, rmFft, sphereTable, sphBessel, rmParams, rmFaceMaterial, rmEyring, rmLayout, rmButterResp, rmMinPhase, ROOM_DEFAULTS, P22_DEFAULTS, Pro10V3, Pro12V2, Pro13, Pro14V2, Pro15, Pro16, Pro17, Air8, Pro21, WetShaper, wetShapeFir, directivityNodesDb, chValue, GainRamp,
     BauerV3, Bs2b, Fdn, TapSet: makeTapSet, VertTaps, Cascade, calibrationScale,
     designBauerV3, normaliseParams, normaliseV4, levelsDb, rtScale, butterHP2, peaking, shelf, lowpass1,
@@ -4744,7 +5071,8 @@ const DEFAULTS = {
   bauer_method: 'exo',
   eqOn: false, eqPre: true, eqName: '', hrOn: false, hrSync: true, hrName: '',
   p21_air_db_per_m: [0.0, 0.01, 0.04, 0.10],
-  eq_first: true, ex_enabled: false, ex_mode: 'standard', room_material: 'standard', room_version: 2,
+  eq_first: true, eq_engine: 'min', pcfir: { taps: 43200, window_idx: '1', kaiser_beta: 8.6, hpf: 20.0, lpf: 20000.0, filter_ver: 2, interp_mode: 'hermite', phase_mode: 'pure', norm_mode: 'off', h4_ha_weight: 1.0, h4_pa_depth: 1.0, h5_min_hz: 80.0, mix_mode: 'avg' },
+  ex_enabled: false, ex_mode: 'standard', room_material: 'standard', room_version: 2,
 };
 for (const w of DSP.P21_SURF) DEFAULTS['p21_reflect_' + w] = DSP.P21_REFL[w].slice();
 
@@ -5016,7 +5344,7 @@ class ExoProc extends AudioWorkletProcessor {
     super();
     this.e = new ExoDSP.Engine(sampleRate); this.lim = new ExoDSP.Limiter(sampleRate);
     this.z = new Float32Array(128); this.busy = 0; this.frames = 0;
-    this.port.onmessage = (ev) => { const m = ev.data; if (m.type === 'params') this.e.setParams(m.params, m.geo, m.cal); else if (m.type === 'post') this.e.setPost(m.spec); else if (m.type === 'room') this.e.setRoom(m.mode, m.plan); };
+    this.port.onmessage = (ev) => { const m = ev.data; if (m.type === 'params') this.e.setParams(m.params, m.geo, m.cal); else if (m.type === 'post') this.e.setPost(m.spec); else if (m.type === 'room') this.e.setRoom(m.mode, m.plan); else if (m.type === 'eqfir') this.e.setEqFir(m.plan, m.delay); };
   }
   process(inputs, outputs) {
     const i = inputs[0], o = outputs[0];
@@ -5683,7 +6011,7 @@ if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEven
 
 
 // ---- EQ file / HRTF file: parsed here, designed here (biquads, minimum-phase FIRs), only the numbers go to the audio thread ------
-let EQ = null, HR = null;
+let EQ = null, HR = null, EQ_TEXT = '';
 const postErr = { eq: '', hr: '' };
 const LS_EQ = LS + '-eq', LS_HR = LS + '-hr';
 const lsGet = (k) => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
@@ -5696,7 +6024,7 @@ function decodeText(buf) {
 }
 const curNotch = () => ((HR && S.hrOn && S.hrSync && HR.notch) ? HR.notch : 0);
 const postFs = () => (ctx ? ctx.sampleRate : 48000);
-function postSpec(fs) { return DSP.designPost({ eq: EQ, eqOn: S.eqOn, usePre: S.eqPre, hr: HR, hrOn: S.hrOn, hrAmt: (Number(S.hrAmt) || 0) / 100 }, fs); }
+function postSpec(fs) { return DSP.designPost({ eq: EQ, eqOn: S.eqOn && S.eq_engine !== 'pc', usePre: S.eqPre, hr: HR, hrOn: S.hrOn, hrAmt: (Number(S.hrAmt) || 0) / 100 }, fs); }
 let postTimer = 0;
 function pushPost(now) {
   clearTimeout(postTimer);
@@ -5706,12 +6034,13 @@ function pushPost(now) {
     if (node) node.port.postMessage({ type: 'post', spec }); else if (engineMain) engineMain.setPost(spec);
   };
   if (now) run(); else postTimer = setTimeout(run, 150);
+  firRequest();
 }
 function eqLoad(text, name, quiet) {
   let P = null;
   try { P = DSP.parseEQ(text); if (!P.filters.length && !P.graphic) P = null; } catch (e) { P = null; }
   if (!P) { postErr.eq = '使えるフィルタが見つかりませんでした。'; renderPostMsgs(); return false; }
-  postErr.eq = ''; EQ = P; S.eqName = name || '';
+  postErr.eq = ''; EQ = P; EQ_TEXT = text; S.eqName = name || '';
   if (!quiet) { S.eqOn = true; lsSet(LS_EQ, text.length < 400000 ? text : ''); save(); pushPost(true); }
   renderPost(); return true;
 }
@@ -5777,11 +6106,11 @@ function renderPostMsgs() {
 let hrAmtBuilt = false;
 function renderPost() {
   if (!hrAmtBuilt) { hrAmtBuilt = true; $('hrAmtBox').innerHTML = ctlRow('hrAmt', 'p_') + '<div class="hint">100 %でファイルのとおりです。0 %で補正なし。強くかけると音割れしやすいので、そのときは出力ゲインを下げてください。</div>'; }
-  $('eqOn').setAttribute('aria-pressed', String(!!(EQ && S.eqOn))); $('hrOn').setAttribute('aria-pressed', String(!!(HR && S.hrOn)));
+  $('eqOn').setAttribute('aria-pressed', String(!!((EQ || S.eq_engine === 'pc') && S.eqOn))); $('hrOn').setAttribute('aria-pressed', String(!!(HR && S.hrOn)));
   $('eqPre').checked = !!S.eqPre; $('hrSync').checked = !!S.hrSync;
   const ul = $('eqFlt'); ul.innerHTML = '';
   if (EQ) for (const f of EQ.filters) { const li = document.createElement('li'); li.innerHTML = `<span>${f.type} ${f.fc >= 1000 ? (f.fc / 1000).toFixed(2) + 'k' : f.fc}</span><b>${f.gain > 0 ? '+' : ''}${f.gain.toFixed(1)} dB · Q ${(f.bw ? f.bw + 'oct' : f.q.toFixed(2))}</b>`; ul.appendChild(li); }
-  renderPostMsgs(); eqDraw(); hrDraw();
+  renderPostMsgs(); eqDraw(); hrDraw(); if (typeof firShow === 'function') try { firShow(); } catch (e) { /* not ready */ }
 }
 function readFile(inputId, cb) {
   $(inputId).onchange = async (ev) => {
@@ -5794,13 +6123,13 @@ $('eqPick').onclick = () => $('eqFile').click(); $('hrPick').onclick = () => $('
 readFile('eqFile', (t, n) => eqLoad(t, n, false)); readFile('hrFile', (t, n) => hrLoad(t, n, false));
 $('eqPaste').onclick = () => { const t = $('eqText').value; if (t.trim()) eqLoad(t, '貼り付け', false); };
 $('hrPaste').onclick = () => { const t = $('hrText').value; if (t.trim()) hrLoad(t, '貼り付け', false); };
-$('eqClear').onclick = () => { EQ = null; S.eqOn = false; S.eqName = ''; postErr.eq = ''; lsSet(LS_EQ, ''); save(); pushPost(true); renderPost(); };
+$('eqClear').onclick = () => { EQ = null; EQ_TEXT = ''; S.eqOn = false; S.eqName = ''; postErr.eq = ''; lsSet(LS_EQ, ''); save(); pushPost(true); renderPost(); };
 $('hrClear').onclick = () => { HR = null; S.hrOn = false; S.hrName = ''; postErr.hr = ''; lsSet(LS_HR, ''); save(); pushPost(true); pushParams(); renderPost(); };
-$('eqOn').onclick = () => { if (!EQ) { postErr.eq = '先にEQファイルを読み込んでください。'; renderPostMsgs(); return; } postErr.eq = ''; S.eqOn = !S.eqOn; save(); pushPost(true); renderPost(); };
+$('eqOn').onclick = () => { if (!EQ && S.eq_engine !== 'pc') { postErr.eq = '先にEQファイルを読み込んでください。'; renderPostMsgs(); return; } postErr.eq = ''; S.eqOn = !S.eqOn; save(); pushPost(true); renderPost(); };
 $('hrOn').onclick = () => { if (!HR) { postErr.hr = '先にHRTFファイルを読み込んでください。'; renderPostMsgs(); return; } postErr.hr = ''; S.hrOn = !S.hrOn; save(); pushPost(true); pushParams(); renderPost(); };
 $('eqPre').onchange = () => { S.eqPre = $('eqPre').checked; save(); pushPost(true); renderPostMsgs(); eqDraw(); };
 $('hrSync').onchange = () => { S.hrSync = $('hrSync').checked; save(); pushParams(); renderPostMsgs(); };
-{ const t = lsGet(LS_EQ); if (t) eqLoad(t, S.eqName, true); const h = lsGet(LS_HR); if (h) hrLoad(h, S.hrName, true); if (!EQ) S.eqOn = false; if (!HR) S.hrOn = false; }
+{ const t = lsGet(LS_EQ); if (t) eqLoad(t, S.eqName, true); const h = lsGet(LS_HR); if (h) hrLoad(h, S.hrName, true); if (!EQ && S.eq_engine !== 'pc') S.eqOn = false; if (!HR) S.hrOn = false; }
 window.addEventListener('resize', () => { eqDraw(); hrDraw(); });
 
 // Pro 21: the room that was asked for, or why it cannot be built
@@ -5821,6 +6150,16 @@ const ROOM_MODES = new Set(['room', 'pro22']);
 const ROOM_WORKER_TAIL = `
 const cache = {};
 self.onmessage = (ev) => {
+  if (ev.data.kind === 'fir') {
+    const { id, cfg, fs, text } = ev.data;
+    try {
+      const eq = text ? ExoDSP.parseEqPc(text) : null, r = ExoDSP.designFirPair(cfg, fs, eq ? [eq] : []);
+      if (!r) { self.postMessage({ kind: 'fir', id, plan: null }); return; }
+      const plan = ExoDSP.roomConvPlan([[r.l, new Float64Array(r.l.length)], [new Float64Array(r.r.length), r.r]], 128); plan.diag = true;
+      self.postMessage({ kind: 'fir', id, plan, delay: (r.l.length - 1) / 2, info: Object.assign({ eq: !!eq }, r.info) }, plan.tiers.map((t) => t.H.buffer));
+    } catch (e) { self.postMessage({ kind: 'fir', id, error: String(e && e.message || e) }); }
+    return;
+  }
   const { id, S, fs, mode, notch } = ev.data;
   try {
     const r = ExoDSP.roomBuild(S, fs, mode, notch, cache[mode]);
@@ -5838,8 +6177,8 @@ function roomWorkerGet() {
   try {
     roomWorker = EXT ? new Worker(chrome.runtime.getURL('room_worker.js'))
       : new Worker(URL.createObjectURL(new Blob([$('dsp').textContent + '\n' + ROOM_WORKER_TAIL], { type: 'application/javascript' })));
-    roomWorker.onmessage = (ev) => roomDone(ev.data);
-    roomWorker.onerror = () => { roomWorkerFailed = true; roomWorker = null; roomBusy = false; roomKick(); };
+    roomWorker.onmessage = (ev) => (ev.data && ev.data.kind === 'fir' ? firDone(ev.data) : roomDone(ev.data));
+    roomWorker.onerror = () => { roomWorkerFailed = true; roomWorker = null; roomBusy = false; firBusy = false; roomKick(); firKick(); };
   } catch (e) { roomWorkerFailed = true; roomWorker = null; }
   return roomWorker;
 }
@@ -5897,6 +6236,60 @@ function roomShow() {
   el.textContent = t;
 }
 
+
+// ---- PC-style EQ FIR (fir_design.py): designed in the worker, convolved before the spatial mode ------------------------
+let firBusy = false, firQueued = null, firApplied = '', firStat = { info: null, err: '' };
+function firRequest() {
+  if (!ctx) { firShow(); return; }
+  const on = S.eqOn && S.eq_engine === 'pc';
+  const req = on ? { cfg: Object.assign({}, S.pcfir), fs: ctx.sampleRate, text: EQ_TEXT || '' } : null;
+  const key = req ? JSON.stringify(req) : 'off';
+  if (key === firApplied && !firQueued) { firShow(); return; }
+  firQueued = { req, key }; firKick();
+}
+function firKick() {
+  if (firBusy || !firQueued) { firShow(); return; }
+  const q = firQueued; firQueued = null;
+  if (!q.req) { firSend(null, 0); firApplied = q.key; firStat.info = null; firShow(); firKick(); return; }
+  firBusy = true; firShow();
+  const w = roomWorkerGet();
+  if (w) { firStat.pendingKey = q.key; w.postMessage({ kind: 'fir', id: 0, cfg: q.req.cfg, fs: q.req.fs, text: q.req.text }); return; }
+  setTimeout(() => {
+    firStat.pendingKey = q.key;
+    try {
+      const eq = q.req.text ? DSP.parseEqPc(q.req.text) : null, r = DSP.designFirPair(q.req.cfg, q.req.fs, eq ? [eq] : []);
+      if (!r) { firDone({ kind: 'fir', plan: null }); return; }
+      const plan = DSP.roomConvPlan([[r.l, new Float64Array(r.l.length)], [new Float64Array(r.r.length), r.r]], 128); plan.diag = true;
+      firDone({ kind: 'fir', plan, delay: (r.l.length - 1) / 2, info: Object.assign({ eq: !!eq }, r.info) });
+    } catch (e) { firDone({ kind: 'fir', error: String(e && e.message || e) }); }
+  }, 30);
+}
+function firSend(plan, delay) {
+  if (node) node.port.postMessage({ type: 'eqfir', plan, delay }, plan ? plan.tiers.map((t) => t.H.buffer) : []);
+  else if (engineMain) engineMain.setEqFir(plan, delay);
+}
+function firDone(m) {
+  firBusy = false;
+  if (m.error) firStat.err = m.error;
+  else { firStat.err = ''; firSend(m.plan || null, m.delay || 0); firStat.info = m.info || null; firApplied = firStat.pendingKey; }
+  firKick();
+}
+function firShow() {
+  const el = $('firInfo'); if (!el) return;
+  $('eqEngine').value = S.eq_engine === 'pc' ? 'pc' : 'min';
+  el.hidden = S.eq_engine !== 'pc'; if (el.hidden) return;
+  const c = S.pcfir || {}, wn = { '1': 'Kaiser', '2': 'Nuttall', '3': 'Hamming', '4': 'Blackman', '5': 'Hann', '6': 'Blackman-Harris', '14': 'DPSS (NW 3)', '15': 'DPSS (NW 4)' }[String(c.window_idx)] || '窓 ' + c.window_idx;
+  let t = `PC方式: ${Number(c.taps) + 1} タップ・${wn}・補間 ${c.interp_mode}・位相 ${c.phase_mode}・正規化 ${c.norm_mode}・${c.hpf} Hz〜${c.lpf} Hz`;
+  if (!S.eqOn) t += ' ｜ EQは切れています (上のスイッチで入れると、EQファイルがなくても、フィルタと位相モードの整形が掛かります)';
+  else if (!ctx) t += ' ｜ 再生を始めると作ります';
+  else if (firStat.err) t += ' ｜ 作れませんでした: ' + firStat.err;
+  else if (firBusy || firQueued) t += ' ｜ 作成中 …';
+  else if (firStat.info) t += ` ｜ 動作中: 遅れ ${firStat.info.delay_ms.toFixed(0)} ms・音量 ${firStat.info.gain_db.toFixed(1)} dB` + (firStat.info.eq ? '' : '・EQファイルなし (GraphicEQ の行が必要です)') + (firStat.info.notes.length ? '・' + firStat.info.notes.join('・') : '');
+  t += ' ｜ 長いFIRなので、音が出るまで約 ' + ((Number(c.taps) / 2) / (ctx ? ctx.sampleRate : 44100)).toFixed(2) + ' 秒遅れます (動画の音もずれます)。';
+  el.textContent = t;
+}
+$('eqEngine').onchange = () => { S.eq_engine = $('eqEngine').value; save(); pushPost(true); renderPost(); firShow(); };
+
 // ---- EX exciter controls ------------------------------------------------------------------------------------------------
 function renderEx() {
   if (!$('exBox').childElementCount) $('exBox').innerHTML = ['ex_even', 'ex_odd', 'ex_air'].map((k) => ctlRow(k, 'x_')).join('');
@@ -5937,7 +6330,10 @@ function pcImport(cfg) {
   if (cfg.hrtf_enabled !== undefined) { S.hrOn = !!cfg.hrtf_enabled && !!HR; }
   if (cfg.tube_enabled && (cfg.tu_pre && cfg.tu_pre !== 'off' || cfg.tu_pow && cfg.tu_pow !== 'off')) skipped.push('真空管 (この版にはありません)');
   if (cfg.room_track) skipped.push('頭の追従 (スマホ版にはありません)');
-  if (cfg.phase_mode && cfg.phase_mode !== 'pure' && cfg.filter_ver !== 'off') skipped.push('EQの位相モード ' + cfg.phase_mode + ' (この版のEQは最小位相です)');
+  { const fk = ['taps', 'window_idx', 'kaiser_beta', 'hpf', 'lpf', 'filter_ver', 'interp_mode', 'phase_mode', 'norm_mode', 'h4_ha_weight', 'h4_pa_depth', 'h5_min_hz', 'mix_mode', 'single_pass', 'jnd_mode', 'sigma_enabled'];
+    const pf = Object.assign({}, S.pcfir || DEFAULTS.pcfir); for (const k of fk) if (cfg[k] !== undefined) pf[k] = cfg[k];
+    S.pcfir = pf;
+    if (cfg.filter_ver !== undefined) { const off = String(cfg.filter_ver).toLowerCase() === 'off'; S.eq_engine = off ? 'min' : 'pc'; if (!off) S.eqOn = true; done.push('EQ ' + (off ? 'FIR 切' : 'PC方式 (' + pf.phase_mode + '・' + pf.interp_mode + '・' + pf.norm_mode + ')')); } }
   const eqf = (cfg.eq_paths || cfg.eq_files || [])[0], hrf = cfg.hrtf_file;
   done.push(`ほか ${n} 個の値`);
   let msg = '読み込みました: ' + done.join('、') + '。';
@@ -5955,7 +6351,7 @@ $('pcFile').onchange = async (ev) => {
 };
 
 // ---- start ---------------------------------------------------------------------------------------------------------
-fillModes(); syncUi(); renderEx(); tapsNote(); try { p21Msgs(buildParams().prm); } catch (e) { /* ignore */ }
+fillModes(); syncUi(); renderEx(); firShow(); tapsNote(); try { p21Msgs(buildParams().prm); } catch (e) { /* ignore */ }
 $('foot').textContent = 'ExoSpace の Bauer クロスフィード v3 と Pro 10〜17・AIR 8・Pro 21・ROOM・Pro 22 の空間モード、EXエキサイター、EQ・HRTFの読み込みを、PC版のコードから移植したものです。最終判断は自分の耳で。';
 try { benchmark(48000); } catch (e) { /* ignore */ }
 updateStatus();
@@ -5964,7 +6360,7 @@ requestAnimationFrame(drawScope);
   try { lib = await DB.getAllMeta(); } catch (e) { libMsg('この端末では曲を保存できません(プライベートブラウズなど)。取り込んだ曲は閉じると消えます。'); }
   renderLib(); updateStore();
 })();
-window.__exo = { get S() { return S; }, get node() { return node; }, get ctx() { return ctx; }, DSP, audio, get mode() { return mode; }, get lib() { return lib; }, get queue() { return queue; }, roomStat, roomApplied };
+window.__exo = { get S() { return S; }, get node() { return node; }, get ctx() { return ctx; }, DSP, audio, get mode() { return mode; }, get lib() { return lib; }, get queue() { return queue; }, roomStat, roomApplied, firStat };
 </script>
 <script>if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));}</script>
 </body></html>
