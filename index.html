@@ -5321,6 +5321,7 @@ function resolveGeo() {
 // ---- audio graph --------------------------------------------------------------------------------------------------
 const audio = $('audio');
 let ctx = null, node = null, fallback = null, engineMain = null, mode = '', inGain = null;
+let capStream = null, capSrc = null;   // tab capture (below)
 const EXT = !!(typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id);   // running as the Chrome / Edge extension page
 let pushTimer = 0;
 
@@ -5390,9 +5391,16 @@ function startMainThread() {
   inGain.connect(fallback); fallback.connect(ctx.destination);
   mode = 'メインスレッド';
 }
+let devRate = 0;   // the device's own rate when the page runs at 48 kHz instead (shown in the status line)
+// resume() stays pending until the browser allows sound (a click); never let that hold up the rest
+const resumeCtx = () => Promise.race([ctx.resume().catch(() => {}), new Promise((r) => setTimeout(r, 1500))]);
 async function initAudio() {
-  if (ctx) { if (ctx.state === 'suspended') await ctx.resume(); return; }
+  if (ctx) { if (ctx.state === 'suspended') await resumeCtx(); return; }
+  // The context follows the output device's rate. A DAC set to 352.8 / 384 kHz (or 192 kHz) would make every stage
+  // run 4-8 times the work (overload, no sound) and the PC-style FIR, designed with a fixed number of taps, far too
+  // short. Above 96 kHz the page asks for 48 kHz instead; the browser converts to the device rate on the way out.
   ctx = new AudioContext({ latencyHint: 'playback' });
+  if (ctx.sampleRate > 96000) { const hi = ctx.sampleRate; ctx.close().catch(() => {}); ctx = new AudioContext({ latencyHint: 'playback', sampleRate: 48000 }); devRate = hi; }
   const src = ctx.createMediaElementSource(audio); inGain = ctx.createGain(); src.connect(inGain);
   try {
     let url;
@@ -5407,7 +5415,7 @@ async function initAudio() {
     console.warn('AudioWorklet unavailable, main-thread fallback:', err);
     startMainThread();
   }
-  if (ctx.state === 'suspended') await ctx.resume();
+  if (ctx.state === 'suspended') await resumeCtx();
   const { prm, geo, cal } = buildParams();
   if (node) node.port.postMessage({ type: 'params', params: prm, geo, cal }); else engineMain.setParams(prm, geo, cal);
   pushPost(true);
@@ -5432,16 +5440,15 @@ function benchmark(fs) {
 }
 let liveLoad = null, limDb = 0, overSince = 0;
 function updateStatus() {
-  const fs = ctx ? ctx.sampleRate : null, ld = liveLoad != null && !audio.paused ? liveLoad : loadPct;
-  $('status').textContent = ctx ? `${(fs / 1000).toFixed(1)} kHz · ${mode}` + (ld != null ? ` · 負荷 約${ld.toFixed(0)}%` : '') + (limDb < -0.05 && !audio.paused ? ` · 音割れ防止 ${limDb.toFixed(1)} dB` : '') : '未起動';
+  const live = !audio.paused || !!capStream, fs = ctx ? ctx.sampleRate : null, ld = liveLoad != null && live ? liveLoad : loadPct;
+  $('status').textContent = ctx ? `${(fs / 1000).toFixed(1)} kHz${devRate ? ` (機器 ${(devRate / 1000).toFixed(1)} kHz)` : ''} · ${mode}` + (ld != null ? ` · 負荷 約${ld.toFixed(0)}%` : '') + (limDb < -0.05 && live ? ` · 音割れ防止 ${limDb.toFixed(1)} dB` : '') : '未起動';
   // sustained overload: the audio breaks up into noise on this device; say so and what to do
-  if (liveLoad != null && !audio.paused && liveLoad > 85) { if (!overSince) overSince = Date.now(); } else overSince = 0;
+  if (liveLoad != null && live && liveLoad > 85) { if (!overSince) overSince = Date.now(); } else overSince = 0;
   $('overload').hidden = !(overSince && Date.now() - overSince > 2500);
 }
 
 
 // ---- tab capture (extension only): the sound of another tab goes through the same engine ---------------------------
-let capStream = null, capSrc = null;
 function capUi(msg, running) {
   $('capTxt').textContent = msg; $('capStop').hidden = !running; if (CAN_SHARE) $('capStart').hidden = running;
   $('capResume').hidden = !(running && ctx && ctx.state !== 'running');
