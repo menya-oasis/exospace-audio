@@ -176,6 +176,8 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     <h2>タブの音 (YouTube など)</h2>
     <div class="hint" id="capTxt">YouTube などを開いたタブで、ブラウザ右上の ExoSpace のアイコンを押すと、そのタブの音に空間処理を掛けて鳴らします。</div>
     <div class="row"><button class="btn" id="capStart" hidden>タブの音を取り込む</button><button class="btn" id="capResume" hidden>ここを押して音を出す</button><button class="btn" id="capStop" hidden>取り込みをやめる</button></div>
+    <div class="err" id="capWarn" role="status" hidden></div>
+    <div class="hint" id="capLvl" hidden></div>
   </section>
 
   <section class="group" aria-label="ライブラリ" id="libSec">
@@ -5468,11 +5470,35 @@ async function useStream(stream, title) {
   const tr = stream.getAudioTracks()[0]; if (tr) tr.onended = () => stopCapture(false);
   for (const v of stream.getVideoTracks()) v.onended = () => stopCapture(false);     // "stop sharing" in the browser bar
   $('trackTitle').textContent = title || 'タブの音'; $('trackSub').textContent = 'タブから取り込み中';
-  if (ctx.state !== 'running') { try { await ctx.resume(); } catch (e) { /* needs a click */ } }
+  // resume() can stay pending for ever when the browser wants a click first, so never wait on it here
+  if (ctx.state !== 'running') ctx.resume().catch(() => { /* the button below asks for the click */ });
+  ctx.onstatechange = () => { if (capStream) capUi($('capTxt').textContent, true); };
   capUi('取り込み中。元のタブの音は消え、こちらから空間処理した音が出ます。やめるときは下のボタン。', true);
-  updateStatus();
+  capWatch(); updateStatus();
+}
+// what arrives from the tab: shows the level, and says why nothing is heard (no sound from the tab, page muted, ...)
+let capAn = null, capTimer = 0;
+function capWatch() {
+  capAn = ctx.createAnalyser(); capAn.fftSize = 2048; capSrc.connect(capAn);
+  const buf = new Float32Array(capAn.fftSize), t0 = Date.now(); let lastSound = 0;
+  clearInterval(capTimer);
+  capTimer = setInterval(() => {
+    if (!capStream || !capAn) return;
+    capAn.getFloatTimeDomainData(buf); let pk = 0; for (const v of buf) pk = Math.max(pk, Math.abs(v));
+    if (pk > 1e-4) lastSound = Date.now();
+    const db = pk > 0 ? 20 * Math.log10(pk) : -Infinity, tr = capStream.getAudioTracks()[0];
+    $('capLvl').hidden = false; $('capLvl').textContent = 'タブから届いている音: ' + (isFinite(db) && db > -90 ? db.toFixed(0) + ' dBFS' : '無音');
+    let w = '';
+    if (ctx.state !== 'running') w = '音を出すにはクリックが必要です。「ここを押して音を出す」を押してください。';
+    else if (tr && tr.readyState === 'ended') w = 'タブの共有が終わっています。もう一度「タブの音を取り込む」を押してください。';
+    else if (tr && tr.muted) w = 'ブラウザがタブの音を止めています (タブが閉じたか、別のページに移った)。タブを確かめて、もう一度取り込んでください。';
+    else if (Date.now() - Math.max(t0, lastSound) > 3000) w = 'タブから音が届いていません。取り込んだタブで動画を再生していますか。違うタブを選んだ時や、そのタブがミュート (タブの上で右クリック →「サイトをミュート」) の時もこうなります。';
+    $('capWarn').hidden = !w; $('capWarn').textContent = w;
+  }, 500);
 }
 function stopCapture(silent) {
+  clearInterval(capTimer); capTimer = 0; if (capAn) { try { capAn.disconnect(); } catch (e) { /* ignore */ } capAn = null; }
+  $('capWarn').hidden = true; $('capLvl').hidden = true;
   if (capSrc) { try { capSrc.disconnect(); } catch (e) { /* ignore */ } capSrc = null; }
   if (capStream) { for (const t of capStream.getTracks()) { t.onended = null; t.stop(); } capStream = null; }
   if (!silent) capUi('取り込みをやめました。タブの音は元に戻ります。', false);
