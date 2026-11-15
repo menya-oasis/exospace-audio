@@ -363,6 +363,7 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     <div class="row">
       <button class="btn" id="hrPick">HRTFファイルを選ぶ</button>
       <button class="btn" id="hrClear">外す</button>
+      <a class="btn" id="hrEarLab" href="ear.html">耳の写真から作る</a>
     </div>
     <input type="file" id="hrFile" hidden>
     <canvas class="curve" id="hrCv" role="img" aria-label="HRTF補正の周波数特性 (左耳と右耳)"></canvas>
@@ -6529,6 +6530,7 @@ function pcImport(cfg) {
   return msg;
 }
 $('pcPick').onclick = () => $('pcFile').click();
+if (EXT || /claude|usercontent/.test(location.hostname)) $('hrEarLab').hidden = true;   // the lab page sits next to the app only on its own site
 // ---- the ROOM / Pro22 chain as a 4-channel impulse response for JamesDSP's convolver -----------------------------------
 let irUrl = '', irBusy = false;
 function irMsg(t, err) { const m = $('irMsg'); m.hidden = false; m.className = 'msg' + (err ? ' err' : ''); m.textContent = t; }

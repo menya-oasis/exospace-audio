@@ -1,0 +1,1862 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1514">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ExoSpace">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>:root{color-scheme:light dark;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}</style>
+</head><body>
+<title>耳形HRTFラボ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+JP:wght@400;500;700&display=swap">
+<style>
+/* Layout: instrument bench — tracing canvas on the left (sticky on wide screens), measurement readouts stacked on the right */
+:root {
+  --bg: #edf1f1; --surface: #fafcfc; --sunk: #e2e9ea; --fg: #13201f; --muted: #576a6b; --line: #cdd8d9;
+  --accent: #0e6f73; --accent-ink: #ffffff; --accent-soft: #d3ebeb;
+  --left: #2d6bd8; --right: #cf3f52;
+  --c1: #c48508; --c2: #1f8f64; --c3: #8a4bd3; --canal: #e0412f; --scale: #0e8d93;
+  --warn: #a8500a;
+  --f-sans: "IBM Plex Sans JP", "Hiragino Sans", "Noto Sans JP", "Yu Gothic", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0b1213; --surface: #121c1e; --sunk: #0d1718; --fg: #e1ebeb; --muted: #8ea2a3; --line: #23363a;
+  --accent: #46bfc2; --accent-ink: #062729; --accent-soft: #163538;
+  --left: #6c9df5; --right: #f26c7c;
+  --c1: #f0b43a; --c2: #4cc58f; --c3: #b98af2; --canal: #ff6b57; --scale: #46bfc2; --warn: #f0a050;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0b1213; --surface: #121c1e; --sunk: #0d1718; --fg: #e1ebeb; --muted: #8ea2a3; --line: #23363a;
+  --accent: #46bfc2; --accent-ink: #062729; --accent-soft: #163538;
+  --left: #6c9df5; --right: #f26c7c;
+  --c1: #f0b43a; --c2: #4cc58f; --c3: #b98af2; --canal: #ff6b57; --scale: #46bfc2; --warn: #f0a050;
+  color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-sans); font-size: 15px; line-height: 1.6; padding-inline: 16px; padding-block: 20px 48px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+
+.top { max-width: 1240px; margin: 0 auto 18px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 20px; }
+.top h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: .02em; }
+.top h1 span { font-family: var(--f-mono); font-weight: 500; font-size: .8rem; color: var(--accent); letter-spacing: .12em; margin-left: 10px; vertical-align: middle; }
+.top p { margin: 0; color: var(--muted); max-width: 60ch; font-size: .92rem; }
+
+.layout { max-width: 1240px; margin: 0 auto; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 980px) {
+  .layout { grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); align-items: start; }
+  .bench { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); }
+}
+.col { display: grid; gap: 16px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; min-width: 0; display: grid; gap: 12px; }
+.card h2 { font-size: 1rem; font-weight: 700; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; white-space: nowrap; }
+.card h2 small { font-weight: 400; color: var(--muted); font-size: .8rem; white-space: normal; }
+.eyebrow { font-family: var(--f-mono); font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn { appearance: none; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 7px 12px; cursor: pointer; font-size: .88rem; line-height: 1.3; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 500; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn[disabled] { opacity: .5; cursor: default; }
+.filebtn { position: relative; overflow: hidden; }
+.filebtn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.tag { font-size: .78rem; color: var(--muted); border: 1px dashed var(--line); border-radius: 99px; padding: 2px 10px; }
+
+.modes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.mode { appearance: none; border: 1px solid var(--line); background: var(--sunk); border-radius: 8px; padding: 6px 4px 5px; cursor: pointer; display: grid; justify-items: center; gap: 1px; min-width: 0; }
+.mode .sw { width: 22px; height: 4px; border-radius: 2px; background: var(--c); }
+.mode b { font-size: .8rem; font-weight: 500; white-space: nowrap; }
+.mode i { font-style: normal; font-family: var(--f-mono); font-size: .7rem; color: var(--muted); }
+.mode i.ok { color: var(--c2); }
+.mode[aria-pressed="true"] { background: var(--surface); border-color: var(--c); box-shadow: inset 0 0 0 1px var(--c); }
+.hint { margin: 0; font-size: .86rem; color: var(--fg); background: var(--sunk); border-radius: 8px; padding: 8px 10px; min-height: 3.2em; }
+.hint em { font-style: normal; color: var(--muted); }
+
+.canvas-wrap { display: block; background: var(--sunk); border-radius: 8px; overflow: hidden; overscroll-behavior: contain; }
+.canvas-wrap.zoomed { overflow: auto; }
+#bench { display: block; margin: 0 auto; touch-action: none; cursor: crosshair; }
+.canvas-wrap:not(.zoomed) #bench { max-width: 100%; }
+.canvas-wrap.zoomed #bench { cursor: crosshair; }
+
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 14px; }
+.field { display: grid; gap: 3px; font-size: .8rem; color: var(--muted); min-width: 0; }
+.field .in { display: flex; align-items: center; gap: 6px; color: var(--fg); }
+.field input[type=number] { width: 100%; min-width: 0; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-family: var(--f-mono); font-size: .9rem; }
+.field input[type=range] { width: 100%; accent-color: var(--accent); }
+.field output, .unit { font-family: var(--f-mono); font-size: .8rem; color: var(--muted); white-space: nowrap; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { appearance: none; border: 0; background: transparent; padding: 6px 10px; cursor: pointer; font-size: .85rem; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+.stat { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.stat div { background: var(--sunk); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.stat span { display: block; font-size: .72rem; color: var(--muted); }
+.stat b { font-family: var(--f-mono); font-weight: 500; font-size: 1rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@media (max-width: 420px) { .stat b { font-size: .88rem; } }
+
+.chart { width: 100%; display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .78rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend .ln { width: 18px; height: 0; border-top: 2px solid var(--c); }
+.legend .ln.dash { border-top-style: dashed; }
+.cap { margin: 0; font-size: .8rem; color: var(--muted); }
+
+.dir { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 14px; align-items: center; }
+#dial { width: 132px; height: 132px; touch-action: none; cursor: pointer; }
+.notches { display: grid; gap: 4px; font-size: .82rem; }
+.notches div { display: grid; grid-template-columns: 9px auto auto minmax(0, 1fr); column-gap: 8px; align-items: baseline; }
+.notches div > span { white-space: nowrap; }
+.notches div > em:only-child { grid-column: 1 / -1; }
+@media (max-width: 520px) { .notches div > em:not(:only-child) { grid-column: 2 / -1; } }
+.notches .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); flex: none; transform: translateY(1px); }
+.notches .mono { color: var(--fg); }
+.notches em { font-style: normal; color: var(--muted); }
+
+.warn { color: var(--warn); font-size: .84rem; margin: 0; }
+.progress:empty { display: none; }
+.progress { font-family: var(--f-mono); font-size: .8rem; color: var(--muted); }
+details.adv summary, details.about summary { cursor: pointer; font-size: .86rem; color: var(--accent); }
+details.adv[open] summary { margin-bottom: 10px; }
+.about { font-size: .86rem; }
+.about p { margin: 0 0 8px; max-width: 68ch; }
+.about ol { margin: 0 0 8px; padding-left: 1.3em; display: grid; gap: 4px; }
+.about cite { font-style: normal; color: var(--muted); }
+.tip { margin: 0; }
+.auto-note { margin-left: 6px; font-size: .72rem; color: var(--accent); }
+.howto { display: grid; gap: 8px; font-size: .84rem; }
+.howto p { margin: 0; max-width: 68ch; }
+code { font-family: var(--f-mono); font-size: .8em; background: var(--sunk); border-radius: 4px; padding: 1px 5px; overflow-wrap: anywhere; }
+.seg.ears button { padding: 6px 18px; font-weight: 500; }
+#eqSeg { justify-self: start; max-width: 100%; }
+.chk { display: inline-flex; align-items: center; gap: 6px; font-size: .86rem; cursor: pointer; }
+.chk input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
+.bstate { display: grid; gap: 4px; font-size: .82rem; margin: 0; }
+.bstate div { display: grid; grid-template-columns: 3.6em minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.bstate dt { color: var(--muted); }
+.bstate dd { margin: 0; overflow-wrap: anywhere; }
+.bstate .ok { color: var(--c2); }
+.batch.drop { outline: 2px dashed var(--accent); outline-offset: 2px; }
+.qrow { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
+#eqSeg button { white-space: nowrap; }
+@media (max-width: 420px) { .mode b { font-size: .72rem; } .dir { grid-template-columns: 112px minmax(0,1fr); } #dial { width: 112px; height: 112px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<header class="top">
+  <h1>耳形HRTFラボ<span>PINNA → HRTF</span></h1>
+  <p>左右の耳を真横から撮った写真に輪郭をなぞると、耳介の反射モデルと球頭モデルからあなた用の頭部伝達関数（HRTF）を計算します。いまは見本の耳で計算した結果を表示しています。</p>
+</header>
+
+<main class="layout">
+  <section class="card bench" aria-label="耳の輪郭トレース">
+    <div class="row" style="justify-content: space-between">
+      <div class="seg ears" id="earSeg"><button type="button" data-ear="R">右耳</button><button type="button" data-ear="L">左耳</button></div>
+      <span class="cap" id="earStatus"></span>
+    </div>
+    <div class="row">
+      <label class="btn primary filebtn">耳の写真を選ぶ<input id="photo" type="file" accept="image/*"></label>
+      <button class="btn" id="demoBtn" type="button">見本の耳を使う</button>
+      <button class="btn" id="clearEar" type="button">この耳の写真を外す</button>
+      <span class="tag" id="srcLabel">見本の耳</span>
+    </div>
+    <div class="row" id="aiRow">
+      <button class="btn primary" id="aiTrace" type="button" disabled>AIで輪郭を自動配置</button>
+      <button class="btn" id="aiStop" type="button" hidden>止める</button>
+      <span class="cap" id="aiNote">AIの利用を確認しています…</span>
+    </div>
+    <p class="cap tip">耳と同じ高さから、真横に撮ってください。斜め下や前から撮ると、耳の穴とふちの距離が縮んで写ります。自撮りで左右が反転していても大丈夫です。</p>
+    <div class="modes" id="modes">
+      <button class="mode" type="button" data-mode="scale" style="--c: var(--scale)"><span class="sw"></span><b>スケール</b><i data-count="scale">0/2</i></button>
+      <button class="mode" type="button" data-mode="canal" style="--c: var(--canal)"><span class="sw"></span><b>外耳道</b><i data-count="canal">0/1</i></button>
+      <button class="mode" type="button" data-mode="c1" style="--c: var(--c1)"><span class="sw"></span><b>耳輪</b><i data-count="c1">0点</i></button>
+      <button class="mode" type="button" data-mode="c2" style="--c: var(--c2)"><span class="sw"></span><b>対耳輪</b><i data-count="c2">0点</i></button>
+      <button class="mode" type="button" data-mode="c3" style="--c: var(--c3)"><span class="sw"></span><b>耳甲介</b><i data-count="c3">0点</i></button>
+    </div>
+    <p class="hint" id="hint"></p>
+    <div class="canvas-wrap" id="benchWrap"><canvas id="bench" aria-label="耳の写真。タップで点を追加、ドラッグで移動"></canvas></div>
+    <div class="row" style="justify-content: space-between">
+      <div class="row">
+        <button class="btn" id="undo" type="button">1点戻す</button>
+        <button class="btn" id="clearMode" type="button">この項目を消す</button>
+        <button class="btn" id="zoomBtn" type="button" aria-label="写真の拡大率を切り替え">拡大 ×1</button>
+      </div>
+      <div class="row" style="gap: 6px; font-size: .82rem; color: var(--muted)"><span>顔の向き<span id="frontAuto" class="auto-note"></span></span>
+        <div class="seg" id="frontSeg"><button type="button" data-front="-1">← 左</button><button type="button" data-front="1">右 →</button></div>
+      </div>
+    </div>
+    <div class="fields">
+      <label class="field">スケール2点間の実寸<span class="in"><input id="scaleMm" type="number" min="5" max="400" step="0.5" value="65"><span class="unit">mm</span></span></label>
+      <label class="field">水平基準の傾き補正<span class="in"><input id="tilt" type="range" min="-30" max="30" step="1" value="0"><output id="tiltOut">0°</output></span></label>
+    </div>
+  </section>
+
+  <div class="col">
+    <section class="card quick" id="quickCard" aria-label="写真を貼るだけで ExoSpace へ">
+      <h2>写真を貼るだけ <small>耳の写真 → AIが輪郭 → HRTF → ExoSpace</small></h2>
+      <div class="row">
+        <label class="btn primary filebtn">耳の写真を選ぶ<input id="qPhoto" type="file" accept="image/*"></label>
+        <span class="tag">貼り付け（Ctrl+V・長押し→貼り付け）でも可</span>
+        <span class="cap" id="qAiNote"></span>
+      </div>
+      <div class="fields">
+        <label class="field">耳の長さ（上端〜耳たぶの下端）<span class="in"><input id="qEarMm" type="number" min="40" max="90" step="0.5" value="65"><span class="unit">mm</span></span></label>
+        <label class="field">ノッチのQ<span class="in"><select id="qQ"><option value="16">Q 16（鋭い・いまの設定）</option><option value="8">Q 8（なだらか）</option></select></span></label>
+      </div>
+      <p class="cap">耳の長さは定規で一度測ってください（成人でおよそ 60〜70 mm）。これがノッチの周波数をそのまま決めます。値はこの端末に覚えておきます。</p>
+      <p class="progress" id="qMsg" aria-live="polite"></p>
+      <div class="row">
+        <a class="btn primary" id="qSend" rel="noopener" hidden>ExoSpace で使う（開いて自動で読み込み）</a>
+        <button class="btn" id="qCopy" type="button" hidden>HRTF の文字をコピー</button>
+      </div>
+      <details class="adv">
+        <summary>ExoSpace の場所</summary>
+        <label class="field">ExoSpace Mobile の URL<span class="in"><input id="qApp" type="url" style="width:100%;min-width:0;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);font-family:var(--f-mono);font-size:.85rem" value="https://menya-oasis.github.io/exospace-audio/"></span></label>
+        <p class="cap">「ExoSpace で使う」を押すと、この URL を新しいタブで開き、HRTF（スピーカー ±30° 用、拡散音場補正済み）が自動で読み込まれて HRTF がオンになります。URL のうしろに HRTF のデータを付けて渡すだけで、どこにも送信しません。PC版で使うときは、下の「写真から一括出力」か「GraphicEQ を保存」のファイルを使ってください。</p>
+      </details>
+    </section>
+
+    <section class="card batch" id="batchCard" aria-label="写真から一括出力">
+      <h2>写真から一括出力 <small>Q8・Q16 × スピーカー・正面</small></h2>
+      <div class="row">
+        <label class="btn primary filebtn">写真・計測値を取り込む<input id="batchIn" type="file" accept="image/*,.json,application/json" multiple></label>
+        <span class="tag">ここにドロップでも可</span>
+      </div>
+      <p class="cap">耳の写真と、保存した計測値（.json）をいっしょに選べます。計測値があれば輪郭が自動で重なります。写真だけのときは、AIが輪郭を自動で置いてから書き出します（AIが使えない画面では、手でなぞってください）。</p>
+      <dl class="bstate">
+        <div><dt>右耳</dt><dd id="bsR">—</dd></div>
+        <div><dt>左耳</dt><dd id="bsL">—</dd></div>
+        <div><dt>状態</dt><dd id="bsS">—</dd></div>
+      </dl>
+      <div class="qrow">
+        <label class="chk"><input type="checkbox" id="bq8" checked>Q 8</label>
+        <label class="chk"><input type="checkbox" id="bq16" checked>Q 16</label>
+        <label class="chk"><input type="checkbox" id="bhs">HeSuVi 用 (各Q) も入れる</label>
+        <label class="chk" id="baiRow"><input type="checkbox" id="bai" checked disabled>写真だけのときはAIで輪郭を置く</label>
+        <label class="chk"><input type="checkbox" id="bauto" checked>取り込んだら自動で書き出す</label>
+      </div>
+      <div class="row"><button class="btn primary" id="batchSave" type="button">保存 (.zip)</button></div>
+      <p class="progress" id="batchMsg" aria-live="polite"></p>
+      <p class="cap">zip の中身：<code>my-hrtf-Q8-speakers.txt</code> <code>my-hrtf-Q8-front.txt</code> <code>my-hrtf-Q16-speakers.txt</code> <code>my-hrtf-Q16-front.txt</code>、設定メモ、計測値 .json。耳の実寸（スケール2点間）が結果の周波数を決めるので、取り込み後に左の「実寸」を確認してください。</p>
+    </section>
+
+    <section class="card" aria-label="頭部寸法">
+      <h2>頭部寸法 <small>ITDと頭部の影に使います</small></h2>
+      <div class="fields">
+        <label class="field">頭の幅<span class="in"><input id="headW" type="number" min="100" max="220" step="1" value="152"><span class="unit">mm</span></span></label>
+        <label class="field">頭の高さ<span class="in"><input id="headH" type="number" min="150" max="300" step="1" value="220"><span class="unit">mm</span></span></label>
+        <label class="field">頭の奥行き<span class="in"><input id="headD" type="number" min="140" max="260" step="1" value="195"><span class="unit">mm</span></span></label>
+      </div>
+      <p class="cap">有効球半径 <b class="mono" id="aOut">—</b>（Algazi らの回帰式）。幅は耳の付け根の少し上、奥行きは額から後頭部まで。</p>
+      <details class="adv">
+        <summary>モデルの細かい設定</summary>
+        <div class="fields">
+          <label class="field">耳輪ノッチの深さ<span class="in"><input id="d1" type="number" step="1" value="-14"><span class="unit">dB</span></span></label>
+          <label class="field">対耳輪ノッチの深さ<span class="in"><input id="d2" type="number" step="1" value="-10"><span class="unit">dB</span></span></label>
+          <label class="field">耳甲介ノッチの深さ<span class="in"><input id="d3" type="number" step="1" value="-7"><span class="unit">dB</span></span></label>
+          <label class="field">ノッチのQ<span class="in"><input id="nq" type="number" step="0.1" min="0.5" max="12" value="3"></span></label>
+          <label class="field">耳甲介共鳴の周波数<span class="in"><input id="p1f" type="number" step="50" min="2000" max="7000" value="4200"><span class="unit">Hz</span></span></label>
+          <label class="field">耳甲介共鳴の利得<span class="in"><input id="p1g" type="number" step="0.5" min="0" max="20" value="8"><span class="unit">dB</span></span></label>
+          <label class="field">後方の高域減衰<span class="in"><input id="bs" type="number" step="0.5" min="0" max="20" value="8"><span class="unit">dB</span></span></label>
+        </div>
+      </details>
+    </section>
+
+    <section class="card" aria-label="正中面HRTF">
+      <h2>正中面のHRTF <small><span id="heatEar">右耳</span>・音源を前→上→後に動かしたとき</small></h2>
+      <p class="warn" id="geomWarn" hidden></p>
+      <canvas class="chart" id="heat" height="240"></canvas>
+      <div class="legend">
+        <span><span class="ln dash" style="--c: var(--c1)"></span>耳輪の反射ノッチ</span>
+        <span><span class="ln dash" style="--c: var(--c2)"></span>対耳輪</span>
+        <span><span class="ln dash" style="--c: var(--c3)"></span>耳甲介</span>
+        <span id="heatScale" class="mono"></span>
+      </div>
+      <p class="cap">ノッチ（暗い帯）が仰角とともに上下に動くのが、上下の定位の手がかりです。グラフをタップするとその方向を選びます。</p>
+    </section>
+
+    <section class="card" aria-label="方向ごとの応答">
+      <h2>方向ごとの応答</h2>
+      <div class="dir">
+        <canvas id="dial" width="132" height="132" aria-label="上から見た頭。タップで方位を選択"></canvas>
+        <div style="display: grid; gap: 8px; min-width: 0">
+          <label class="field">方位<span class="in"><input id="azR" type="range" min="-180" max="180" step="5" value="-30"><output id="azOut" style="min-width: 5.5em">右 30°</output></span></label>
+          <label class="field">仰角<span class="in"><input id="elR" type="range" min="-40" max="90" step="5" value="0"><output id="elOut" style="min-width: 5.5em">0°</output></span></label>
+        </div>
+      </div>
+      <div class="stat">
+        <div><span>時間差 ITD</span><b id="itdOut">—</b></div>
+        <div><span>レベル差 ILD</span><b id="ildOut">—</b></div>
+        <div><span>極角</span><b id="betaOut">—</b></div>
+      </div>
+      <canvas class="chart" id="resp" height="210"></canvas>
+      <div class="legend"><span><span class="ln" style="--c: var(--left)"></span>左耳</span><span><span class="ln" style="--c: var(--right)"></span>右耳</span><span>縦軸 dB（頭がないときを 0 dB）</span></div>
+      <div class="notches" id="notchList"></div>
+      <canvas class="chart" id="hrir" height="120"></canvas>
+      <p class="cap">下：頭部インパルス応答（HRIR）。48 kHz・256 タップ、最小位相＋時間差。</p>
+    </section>
+
+    <section class="card" aria-label="試聴">
+      <h2>試聴 <small>ヘッドホンで</small></h2>
+      <div class="row">
+        <button class="btn primary" id="playOne" type="button">この方向で鳴らす</button>
+        <button class="btn" id="playRing" type="button">水平に一周</button>
+        <button class="btn" id="playMed" type="button">前→頭上→後ろ</button>
+        <button class="btn" id="stop" type="button">止める</button>
+      </div>
+      <p class="cap">ピンクノイズの短いバーストを、計算したHRTFで畳み込んで再生します。ヘッドホン向けに拡散音場で補正しています。音量は控えめから。</p>
+    </section>
+
+    <section class="card" aria-label="Equalizer APO">
+      <h2>Equalizer APO 用 <small>Windows のシステム全体にかける</small></h2>
+      <div class="seg" id="eqSeg"><button type="button" data-v="spk" aria-pressed="true">スピーカー ±30°</button><button type="button" data-v="front" aria-pressed="false">正面 0°</button></div>
+      <canvas class="chart" id="eqChart" height="170"></canvas>
+      <div class="legend"><span><span class="ln" style="--c: var(--left)"></span>L（左耳）</span><span><span class="ln dash" style="--c: var(--right)"></span>R（右耳）</span><span class="mono" id="eqPre"></span></div>
+      <div class="row">
+        <button class="btn primary" id="saveEq" type="button">GraphicEQ を保存 (.txt)</button>
+        <button class="btn" id="copyEq" type="button">設定をコピー</button>
+        <button class="btn" id="saveHesuvi" type="button">HeSuVi 用 7.1ch (.zip)</button>
+      </div>
+      <p class="progress" id="eqMsg" aria-live="polite"></p>
+      <details class="adv">
+        <summary>使い方</summary>
+        <div class="howto">
+          <p><b>GraphicEQ（音色を変える）</b><br>保存した .txt を <code>C:\Program Files\EqualizerAPO\config</code> に置き、<code>config.txt</code> の最後に <code>Include: ファイル名.txt</code> を1行足します。左耳の特性が L、右耳の特性が R に入ります。「スピーカー ±30°」は左右のスピーカーをそれぞれ同じ側の耳で聞いたときの音色、「正面 0°」は正面の音源の音色です。</p>
+          <p><b>HeSuVi（頭の外に音を出す）</b><br>zip の <code>hrir</code> フォルダの中身を <code>C:\Program Files\EqualizerAPO\config\HeSuVi\hrir</code> にコピーし（44.1 kHz 用は <code>hrir\44</code>）、HeSuVi の Virtualization で <code>ear-hrtf</code> を選びます。前 ±30°、横 ±90°、後 ±150°、センターの各スピーカーを自分の耳形で畳み込みます。</p>
+          <p>どちらもヘッドホンがほぼ平坦（拡散音場）という前提です。ヘッドホン自体の補正（AutoEq など）を先に入れておくと効果がわかりやすくなります。</p>
+        </div>
+      </details>
+    </section>
+
+    <section class="card" aria-label="書き出し">
+      <h2>書き出し</h2>
+      <div class="row">
+        <button class="btn primary" id="exportZip" type="button">HRIRセットを保存 (.zip)</button>
+        <button class="btn" id="exportGeom" type="button">計測値を保存 (.json)</button>
+        <label class="btn filebtn">計測値を読み込む (.json)<input id="importGeom" type="file" accept=".json,application/json"></label>
+      </div>
+      <p class="cap">937方向（方位5°×仰角10°）のステレオWAV、全データのJSON、SOFAへの変換スクリプト（Python・sofar使用）、上の Equalizer APO 用ファイル一式が入ります。</p>
+      <p class="cap">計測値の .json を読み込むと、なぞった輪郭と頭部寸法を復元します。写真なしでも計算でき、あとで同じ写真を選ぶと輪郭を重ねて調整できます。</p>
+      <p class="progress" id="exportMsg" aria-live="polite"></p>
+    </section>
+
+    <details class="card about">
+      <summary>計算のしくみと限界</summary>
+      <p>外耳道に届く音は、直接音と、耳介の壁で反射して戻ってくる音が重なります。反射面までの距離を d とすると、往復 2d の遅れと反射の位相反転で、周波数 c/(2d) に深い谷（ノッチ）ができます。音源の向きが変わると反射点が輪郭上を移動するため、ノッチ周波数が変わり、これが上下・前後の手がかりになります。</p>
+      <ol>
+        <li>写真上の外耳道から、音源と反対向きの半直線を引き、耳輪・対耳輪・耳甲介の輪郭との交点までの距離を求める（スケールでmmに換算）。</li>
+        <li>各距離から f = c/(2d) のノッチを作り、耳甲介共鳴（約4 kHz）と高域の共鳴を加える。</li>
+        <li>頭部は剛球で近似し、影の効果（1次のシェルビング）と回り込みの時間差を加える。</li>
+        <li>振幅特性から最小位相のインパルス応答を作り、両耳時間差を足して HRIR にする。</li>
+      </ol>
+      <p>参考：<cite>Spagnol, Geronazzo, Avanzini (2013) 耳介画像からのHRTF個人化</cite>、<cite>Brown &amp; Duda (1998) 構造モデル</cite>、<cite>Algazi ほか (2001) 頭部寸法からの球半径推定</cite>。</p>
+      <p>これは近似です。耳甲介の深さなど写真に写らない形状、肩や胴体の反射、後方の細かなノッチは入っていません。より正確にするには、耳と頭の3Dスキャンを境界要素法（Mesh2HRTF など）で計算する方法があります。片方の耳しか計測していないときは、その形を左右反転してもう片方に使います。</p>
+    </details>
+  </div>
+</main>
+
+<script>
+// ===== HRTF core: pinna-contour reflection model + spherical head model =====
+// Coordinates (SOFA): x = front, y = left, z = up. azimuth 0 = front, +90 = left.
+const HRTFCore = (() => {
+  const C = 343;          // speed of sound [m/s]
+  const DEG = Math.PI / 180;
+
+  // ---------- FFT (radix-2, in place) ----------
+  function fft(re, im, inverse) {
+    const n = re.length;
+    for (let i = 1, j = 0; i < n; i++) {
+      let bit = n >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+    }
+    for (let len = 2; len <= n; len <<= 1) {
+      const ang = (inverse ? 2 : -2) * Math.PI / len;
+      const wr = Math.cos(ang), wi = Math.sin(ang);
+      for (let i = 0; i < n; i += len) {
+        let cr = 1, ci = 0;
+        for (let k = 0; k < len / 2; k++) {
+          const a = i + k, b = a + len / 2;
+          const xr = re[b] * cr - im[b] * ci, xi = re[b] * ci + im[b] * cr;
+          re[b] = re[a] - xr; im[b] = im[a] - xi;
+          re[a] += xr; im[a] += xi;
+          const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+        }
+      }
+    }
+    if (inverse) for (let i = 0; i < n; i++) { re[i] /= n; im[i] /= n; }
+  }
+
+  // RBJ peaking EQ magnitude (dB) at frequency f
+  function peakDb(f, fs, f0, gainDb, Q) {
+    if (Math.abs(gainDb) < 1e-6 || f0 <= 0 || f0 >= fs / 2) return 0;
+    const A = Math.pow(10, gainDb / 40), w0 = 2 * Math.PI * f0 / fs, al = Math.sin(w0) / (2 * Q);
+    const cw = Math.cos(w0);
+    const b0 = 1 + al * A, b1 = -2 * cw, b2 = 1 - al * A, a0 = 1 + al / A, a1 = -2 * cw, a2 = 1 - al / A;
+    const w = 2 * Math.PI * f / fs, c1 = Math.cos(w), s1 = Math.sin(w), c2 = Math.cos(2 * w), s2 = Math.sin(2 * w);
+    const nr = b0 + b1 * c1 + b2 * c2, ni = -(b1 * s1 + b2 * s2);
+    const dr = a0 + a1 * c1 + a2 * c2, di = -(a1 * s1 + a2 * s2);
+    return 10 * Math.log10((nr * nr + ni * ni) / (dr * dr + di * di));
+  }
+
+  // Effective sphere radius from head dimensions (Algazi et al. 2001), mm in -> m out
+  function headRadius(widthMm, heightMm, depthMm) {
+    return (0.51 * widthMm / 2 + 0.019 * heightMm / 2 + 0.18 * depthMm / 2 + 32) / 1000;
+  }
+
+  // ---------- Pinna geometry ----------
+  // geom: { canal:{x,y}, contours:[pts,pts,pts] (image px), pxPerMm, front:+1|-1, tiltDeg }
+  // For a source at polar angle beta (interaural-polar, 0 = front, 90 = up),
+  // the reflection that returns to the ear canal lies on the opposite side:
+  // ray from canal in direction -(cos b * Front + sin b * Up).
+  function rayDir(geom, betaDeg) {
+    const t = (geom.tiltDeg || 0) * DEG;
+    // front & up in image coords (y down), rotated counter-clockwise on screen by tilt
+    const rot = (v) => ({ x: v.x * Math.cos(t) + v.y * Math.sin(t), y: -v.x * Math.sin(t) + v.y * Math.cos(t) });
+    const Fr = rot({ x: geom.front, y: 0 }), Ur = rot({ x: 0, y: -1 });
+    const b = betaDeg * DEG;
+    return { x: -(Math.cos(b) * Fr.x + Math.sin(b) * Ur.x), y: -(Math.cos(b) * Fr.y + Math.sin(b) * Ur.y) };
+  }
+
+  function rayHit(o, d, pts) {
+    let best = Infinity;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const p = pts[i], q = pts[i + 1];
+      const ex = q.x - p.x, ey = q.y - p.y;
+      const den = d.x * ey - d.y * ex;
+      if (Math.abs(den) < 1e-12) continue;
+      const wx = p.x - o.x, wy = p.y - o.y;
+      const t = (wx * ey - wy * ex) / den;      // along ray
+      const s = (wx * d.y - wy * d.x) / den;    // along segment
+      if (t > 1e-6 && s >= -1e-7 && s <= 1 + 1e-7 && t < best) best = t;
+    }
+    return best;
+  }
+
+  // distances [mm] to each contour for beta in [-90, 270) at 1 deg steps
+  function buildDistanceTable(geom) {
+    const table = [];
+    for (let b = -90; b < 270; b++) {
+      const d = rayDir(geom, b);
+      table.push(geom.contours.map((pts) => {
+        if (!pts || pts.length < 2 || !geom.canal) return NaN;
+        const t = rayHit(geom.canal, d, pts);
+        return isFinite(t) ? t / geom.pxPerMm : NaN;
+      }));
+    }
+    return table;
+  }
+  function distAt(table, beta) {
+    let b = beta; while (b < -90) b += 360; while (b >= 270) b -= 360;
+    const i0 = Math.floor(b + 90), fr = b + 90 - i0, i1 = (i0 + 1) % 360;
+    return table[i0].map((v, k) => {
+      const w = table[i1][k];
+      if (isNaN(v)) return fr > 0.5 ? w : NaN;
+      if (isNaN(w)) return fr <= 0.5 ? v : NaN;
+      return v + (w - v) * fr;
+    });
+  }
+
+  // ---------- Model ----------
+  const DEFAULTS = {
+    fs: 48000, N: 256, NFFT: 1024,
+    headW: 152, headH: 220, headD: 195,
+    depth: [-14, -10, -7],   // notch depth for helix, antihelix, concha [dB]
+    notchQ: 3.0,
+    p1f: 4200, p1g: 8,       // concha resonance
+    p2f: 12500, p2g: 5,      // 2nd pinna resonance (front/low elevations)
+    backShadow: 8,           // dB high-frequency loss for rear sources
+  };
+
+  // Returns per-ear model info for a direction
+  function earInfo(P, table, az, el, ear) {
+    const snap = (v) => (Math.abs(v) < 1e-9 ? 0 : v); // keep exact lateral directions symmetric
+    const ux = snap(Math.cos(el * DEG) * Math.cos(az * DEG)), uy = snap(Math.cos(el * DEG) * Math.sin(az * DEG)), uz = snap(Math.sin(el * DEG));
+    const ey = ear === 'L' ? 1 : -1;
+    const cosPsi = Math.max(-1, Math.min(1, uy * ey));
+    const psi = Math.acos(cosPsi);
+    const a = headRadius(P.headW, P.headH, P.headD);
+    let beta = Math.atan2(uz, ux) / DEG; if (beta < -90) beta += 360;
+    const notches = [];
+    const sinLat = cosPsi; // sin of lateral angle toward this ear
+    const wp = Math.max(0, Math.min(1, 1 + 1.2 * sinLat));
+    const wel = beta <= 0 ? 1 : beta <= 90 ? 1 - 0.7 * beta / 90 : 0.3 + 0.4 * Math.min(1, (beta - 90) / 90);
+    if (table) {
+      const d = distAt(table, beta);
+      d.forEach((mm, i) => {
+        if (!isNaN(mm) && mm > 2) {
+          const f = C / (2 * mm / 1000);
+          if (f > 1500 && f < 0.45 * P.fs) notches.push({ contour: i, mm, f, gain: P.depth[i] * wp * wel });
+        }
+      });
+    }
+    const delay = psi < Math.PI / 2 ? -(a / C) * Math.cos(psi) : (a / C) * (psi - Math.PI / 2);
+    return { ux, uy, uz, psi, a, beta, notches, wp, delay };
+  }
+
+  function magDb(P, info, f) {
+    const { psi, a, ux, beta, notches, wp } = info;
+    // Brown & Duda head shadow
+    const amin = 0.1, tmin = 150 * DEG;
+    const alpha = (1 + amin / 2) + (1 - amin / 2) * Math.cos(psi / tmin * Math.PI);
+    const w = 2 * Math.PI * f, w0 = C / a;
+    let db = 10 * Math.log10((1 + Math.pow(alpha * w / (2 * w0), 2)) / (1 + Math.pow(w / (2 * w0), 2)));
+    // pinna resonances
+    db += peakDb(f, P.fs, P.p1f, P.p1g * (0.5 + 0.5 * wp), 1.6);
+    const frontLow = Math.max(0, Math.cos(beta * DEG));
+    db += peakDb(f, P.fs, P.p2f, P.p2g * frontLow * wp, 2.5);
+    // pinna notches
+    for (const n of notches) db += peakDb(f, P.fs, n.f, n.gain, P.notchQ);
+    // rear pinna shadow
+    const b = Math.max(0, -ux);
+    db += -P.backShadow * b * f * f / (f * f + 3500 * 3500);
+    return db;
+  }
+
+  // Minimum-phase HRIR with ITD delay
+  // df (optional): diffuse-field level [dB] per FFT bin 0..NFFT/2, removed for headphone use
+  function hrir(P, info, df) {
+    const n = P.NFFT, re = new Float64Array(n), im = new Float64Array(n);
+    for (let k = 0; k <= n / 2; k++) {
+      const f = k * P.fs / n;
+      const L = (magDb(P, info, f) - (df ? df[k] : 0)) * Math.LN10 / 20;
+      re[k] = L; if (k > 0 && k < n / 2) re[n - k] = L;
+    }
+    fft(re, im, true); // real cepstrum
+    for (let i = 1; i < n / 2; i++) { re[i] *= 2; im[i] = 0; }
+    for (let i = n / 2 + 1; i < n; i++) { re[i] = 0; im[i] = 0; }
+    im[0] = 0; im[n / 2] = 0;
+    fft(re, im, false);
+    const a = info.a, T0 = a / C + 0.0005;
+    const tau = (info.delay + T0) * P.fs; // samples
+    for (let k = 0; k < n; k++) {
+      const mag = Math.exp(re[k]), ph = im[k];
+      const kk = k <= n / 2 ? k : k - n;
+      const phd = ph - 2 * Math.PI * kk * tau / n;
+      re[k] = mag * Math.cos(phd); im[k] = mag * Math.sin(phd);
+    }
+    // enforce Hermitian at Nyquist
+    im[n / 2] = 0;
+    fft(re, im, true);
+    const out = new Float32Array(P.N), fade = 32;
+    for (let i = 0; i < P.N; i++) {
+      let g = 1;
+      if (i >= P.N - fade) g = 0.5 * (1 + Math.cos(Math.PI * (i - (P.N - fade)) / fade));
+      out[i] = re[i] * g;
+    }
+    return out;
+  }
+
+  // tables: {L, R} distance tables (either may be null), or one table used for both ears
+  function direction(P, tables, az, el) {
+    const t = tables && ('L' in tables || 'R' in tables) ? tables : { L: tables, R: tables };
+    const L = earInfo(P, t.L, az, el, 'L'), R = earInfo(P, t.R, az, el, 'R');
+    return { L, R, itd: (R.delay - L.delay) }; // >0: left ear leads
+  }
+
+  function exportGrid() {
+    const pos = [];
+    for (let el = -40; el <= 80; el += 10) for (let az = 0; az < 360; az += 5) pos.push([az, el]);
+    pos.push([0, 90]);
+    return pos;
+  }
+
+  // Diffuse-field (power average over the sphere, cos(el) weighted) level in dB at given freqs
+  function diffuseField(P, table, ear, freqs) {
+    const acc = new Float64Array(freqs.length); let wsum = 0;
+    for (let el = -40; el <= 80; el += 20) for (let az = 0; az < 360; az += 15) {
+      const w = Math.cos(el * DEG), info = earInfo(P, table, az, el, ear); wsum += w;
+      for (let i = 0; i < freqs.length; i++) acc[i] += w * Math.pow(10, magDb(P, info, freqs[i]) / 10);
+    }
+    { const w = 0.05, info = earInfo(P, table, 0, 90, ear); wsum += w; for (let i = 0; i < freqs.length; i++) acc[i] += w * Math.pow(10, magDb(P, info, freqs[i]) / 10); }
+    return Array.from(acc, (v) => 10 * Math.log10(v / wsum));
+  }
+  // DF level at every FFT bin (for hrir()). Evaluated on a log grid and interpolated.
+  function dfBins(P, table, ear) {
+    const grid = []; for (let f = 20; f < P.fs / 2; f *= Math.pow(2, 1 / 24)) grid.push(f); grid.push(P.fs / 2);
+    const g = diffuseField(P, table, ear, grid), n = P.NFFT, out = new Float64Array(n / 2 + 1);
+    for (let k = 0; k <= n / 2; k++) {
+      const f = Math.max(20, k * P.fs / n); let j = 0; while (j < grid.length - 2 && grid[j + 1] < f) j++;
+      const fr = Math.max(0, Math.min(1, Math.log(f / grid[j]) / Math.log(grid[j + 1] / grid[j])));
+      out[k] = g[j] + (g[j + 1] - g[j]) * fr;
+    }
+    return out;
+  }
+  // Diffuse-field equalized magnitude for one ear and direction at given freqs (for EQ files)
+  function eqCurve(P, table, ear, az, el, freqs, dfAtFreqs) {
+    const info = earInfo(P, table, az, el, ear);
+    return freqs.map((f, i) => magDb(P, info, f) - dfAtFreqs[i]);
+  }
+  // HeSuVi 14-channel order: speaker-ear. Angles: SOFA azimuth (+ = left), Impulcifer convention.
+  const SPEAKERS = { FL: 30, FR: -30, FC: 0, SL: 90, SR: -90, BL: 150, BR: -150 };
+  const HESUVI_ORDER = ['FL-L', 'FL-R', 'SL-L', 'SL-R', 'BL-L', 'BL-R', 'FC-L', 'FR-R', 'FR-L', 'SR-R', 'SR-L', 'BR-R', 'BR-L', 'FC-R'];
+
+  return { diffuseField, dfBins, eqCurve, SPEAKERS, HESUVI_ORDER, C, fft, peakDb, headRadius, rayDir, rayHit, buildDistanceTable, distAt, DEFAULTS, earInfo, magDb, hrir, direction, exportGrid };
+})();
+if (typeof module !== 'undefined') module.exports = HRTFCore;
+
+// ===== Demo ear (synthetic, drawn procedurally; right ear, face to the right) =====
+const DemoEar = (() => {
+  const W = 520, H = 680, S = 8, CX = 330, CY = 330; // 8 px per mm
+  // gamma: 0 = up, 90 = back, 180 = down (polar around ear canal), r in mm
+  const tables = {
+    helix: [[-25, 30], [0, 33], [30, 33], [60, 31], [90, 27.5], [120, 25], [150, 24], [172, 25]],
+    antihelix: [[20, 24], [45, 22], [70, 19], [90, 17.5], [115, 16.5], [140, 16], [160, 17]],
+    concha: [[30, 15], [60, 12.5], [90, 11.5], [120, 11], [150, 11.5], [170, 12.5]],
+  };
+  const pt = (g, r) => ({ x: CX - Math.sin(g * Math.PI / 180) * r * S, y: CY - Math.cos(g * Math.PI / 180) * r * S });
+  function interp(tab, g) {
+    for (let i = 0; i + 1 < tab.length; i++) if (g >= tab[i][0] && g <= tab[i + 1][0]) {
+      const f = (g - tab[i][0]) / (tab[i + 1][0] - tab[i][0]);
+      return tab[i][1] + f * (tab[i + 1][1] - tab[i][1]);
+    }
+    return null;
+  }
+  function curve(tab, step = 12) {
+    const out = [];
+    for (let g = tab[0][0]; g <= tab[tab.length - 1][0] + 1e-9; g += step) out.push(pt(g, interp(tab, Math.min(g, tab[tab.length - 1][0]))));
+    return out;
+  }
+  const contours = [curve(tables.helix), curve(tables.antihelix, 10), curve(tables.concha, 10)];
+  const geom = {
+    canal: { x: CX, y: CY }, contours,
+    scale: [{ x: CX - 2, y: CY - 37 * S }, { x: CX - 6, y: CY + 28 * S }], scaleMm: 65,
+    front: 1, tiltDeg: 0,
+  };
+
+  function draw(ctx) {
+    const sm = (pts, close) => {
+      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length - 1; i++) {
+        const mx = (pts[i].x + pts[i + 1].x) / 2, my = (pts[i].y + pts[i + 1].y) / 2;
+        ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+      }
+      ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y); if (close) ctx.closePath();
+    };
+    const bg = ctx.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, '#5d4a3f'); bg.addColorStop(1, '#3a2e27');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    // cheek on the face side
+    ctx.fillStyle = '#d9a688'; ctx.fillRect(400, 0, W - 400, H);
+    // outer pinna outline
+    const outer = [];
+    for (let g = -40; g <= 180; g += 8) {
+      const r = g <= 172 ? (interp(tables.helix, Math.max(-25, Math.min(172, g))) + 4.5) : 0;
+      outer.push(pt(g, g <= 172 ? r : 34));
+    }
+    outer.push(pt(186, 33), pt(196, 30), pt(208, 25), pt(222, 17), pt(240, 12), pt(270, 10), pt(310, 18), pt(330, 30));
+    const sk = ctx.createRadialGradient(CX - 60, CY - 20, 30, CX - 40, CY, 320);
+    sk.addColorStop(0, '#f0c3a6'); sk.addColorStop(1, '#c98c6c');
+    ctx.fillStyle = sk; sm(outer, true); ctx.fill();
+    ctx.strokeStyle = 'rgba(90,45,30,.55)'; ctx.lineWidth = 3; ctx.stroke();
+    // scapha (between helix and antihelix)
+    ctx.strokeStyle = 'rgba(120,60,40,.45)'; ctx.lineWidth = 14; ctx.lineCap = 'round';
+    sm(curve(tables.helix.map(([g, r]) => [g, r - 1.8])), false); ctx.stroke();
+    // antihelix ridge
+    ctx.strokeStyle = 'rgba(255,225,205,.7)'; ctx.lineWidth = 10;
+    sm(curve(tables.antihelix.map(([g, r]) => [g, r + 1.5])), false); ctx.stroke();
+    // concha bowl
+    const bowl = curve(tables.concha, 10).concat([pt(200, 8), pt(250, 6), pt(320, 8), pt(10, 13)]);
+    const cg = ctx.createRadialGradient(CX - 30, CY, 10, CX - 30, CY, 120);
+    cg.addColorStop(0, '#8a4e3a'); cg.addColorStop(1, '#c78a6b');
+    ctx.fillStyle = cg; sm(bowl, true); ctx.fill();
+    // tragus
+    ctx.fillStyle = '#e1aa8c'; ctx.beginPath(); ctx.ellipse(CX + 52, CY + 18, 22, 40, -0.2, 0, Math.PI * 2); ctx.fill();
+    // ear canal
+    ctx.fillStyle = '#2a1510'; ctx.beginPath(); ctx.ellipse(CX + 8, CY, 26, 34, 0.3, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function dataURL() {
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    draw(c.getContext('2d')); return c.toDataURL('image/png');
+  }
+  return { W, H, S, geom, tables, dataURL };
+})();
+if (typeof module !== 'undefined') module.exports = DemoEar;
+
+// ===== Export helpers: WAV, ZIP (stored), JSON, SOFA converter script =====
+const HRTFIO = (() => {
+  const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+
+  function makeZip(files) {
+    const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+    for (const f of files) {
+      const nm = enc.encode(f.name), data = typeof f.data === 'string' ? enc.encode(f.data) : f.data, crc = crc32(data);
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true);
+      lh.setUint16(8, 0, true); lh.setUint16(10, 0, true); lh.setUint16(12, 0x21, true);
+      lh.setUint32(14, crc, true); lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true);
+      lh.setUint16(26, nm.length, true); lh.setUint16(28, 0, true);
+      parts.push(new Uint8Array(lh.buffer), nm, data);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true);
+      ch.setUint16(10, 0, true); ch.setUint16(12, 0, true); ch.setUint16(14, 0x21, true);
+      ch.setUint32(16, crc, true); ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true);
+      ch.setUint16(28, nm.length, true); ch.setUint32(42, off, true);
+      central.push(new Uint8Array(ch.buffer), nm);
+      off += 30 + nm.length + data.length;
+    }
+    const cdSize = central.reduce((s, p) => s + p.length, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+    end.setUint32(12, cdSize, true); end.setUint32(16, off, true);
+    return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: 'application/zip' });
+  }
+
+  // 32-bit float stereo WAV
+  function wav(L, R, fs) {
+    const n = L.length, buf = new ArrayBuffer(58 + n * 8), v = new DataView(buf);
+    const s = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+    s(0, 'RIFF'); v.setUint32(4, 50 + n * 8, true); s(8, 'WAVE');
+    s(12, 'fmt '); v.setUint32(16, 18, true); v.setUint16(20, 3, true); v.setUint16(22, 2, true);
+    v.setUint32(24, fs, true); v.setUint32(28, fs * 8, true); v.setUint16(32, 8, true); v.setUint16(34, 32, true); v.setUint16(36, 0, true);
+    s(38, 'fact'); v.setUint32(42, 4, true); v.setUint32(46, n, true);
+    s(50, 'data'); v.setUint32(54, n * 8, true);
+    for (let i = 0; i < n; i++) { v.setFloat32(58 + i * 8, L[i], true); v.setFloat32(62 + i * 8, R[i], true); }
+    return new Uint8Array(buf);
+  }
+
+  // Multichannel 32-bit float WAV (WAVE_FORMAT_EXTENSIBLE), chans: array of Float32Array
+  function wavMulti(chans, fs) {
+    const C = chans.length, n = chans[0].length, bytes = n * C * 4, buf = new ArrayBuffer(80 + bytes), v = new DataView(buf);
+    const s = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+    s(0, 'RIFF'); v.setUint32(4, 72 + bytes, true); s(8, 'WAVE');
+    s(12, 'fmt '); v.setUint32(16, 40, true); v.setUint16(20, 0xFFFE, true); v.setUint16(22, C, true);
+    v.setUint32(24, fs, true); v.setUint32(28, fs * C * 4, true); v.setUint16(32, C * 4, true); v.setUint16(34, 32, true);
+    v.setUint16(36, 22, true); v.setUint16(38, 32, true); v.setUint32(40, 0, true);
+    // KSDATAFORMAT_SUBTYPE_IEEE_FLOAT 00000003-0000-0010-8000-00aa00389b71
+    [0x03, 0, 0, 0, 0, 0, 0x10, 0, 0x80, 0, 0, 0xaa, 0, 0x38, 0x9b, 0x71].forEach((b, i) => v.setUint8(44 + i, b));
+    s(60, 'fact'); v.setUint32(64, 4, true); v.setUint32(68, n, true);
+    s(72, 'data'); v.setUint32(76, bytes, true);
+    for (let i = 0; i < n; i++) for (let c = 0; c < C; c++) v.setFloat32(80 + (i * C + c) * 4, chans[c][i], true);
+    return new Uint8Array(buf);
+  }
+
+  // Equalizer APO GraphicEQ config. curves: {L: dB[], R: dB[]} on freqs
+  function eqFreqs() { const f = []; for (let x = 20; x <= 20000 * 1.001; x *= Math.pow(2, 1 / 24)) { const r = Math.round(x); if (f[f.length - 1] !== r) f.push(r); } return f; }
+  function apoGraphicEQ(freqs, curves, title) {
+    const mx = Math.max(...curves.L, ...curves.R), pre = -Math.ceil((Math.max(0, mx) + 0.5) * 10) / 10;
+    const line = (c) => 'GraphicEQ: ' + freqs.map((f, i) => `${f} ${c[i].toFixed(1)}`).join('; ');
+    return [
+      `# ${title}`,
+      '# Generated by ear-hrtf-lab (pinna reflection + spherical head model, diffuse-field equalized)',
+      `# Created ${new Date().toISOString()}`,
+      `Preamp: ${pre.toFixed(1)} dB`,
+      'Channel: L', line(curves.L),
+      'Channel: R', line(curves.R),
+      'Channel: all', '',
+    ].join('\r\n');
+  }
+
+  const pad = (x, w) => String(Math.abs(Math.round(x))).padStart(w, '0');
+  const wavName = (az, el) => `wav/az${pad(az, 3)}_el${el < 0 ? 'm' : 'p'}${pad(el, 2)}.wav`;
+
+  function setJSON(meta, positions, irs) {
+    const rows = irs.map(([L, R]) => '[[' + Array.from(L, x => +x.toPrecision(6)).join(',') + '],[' + Array.from(R, x => +x.toPrecision(6)).join(',') + ']]');
+    return '{"format":"ear-hrtf/1",' + JSON.stringify(meta).slice(1, -1) +
+      ',"positions":' + JSON.stringify(positions) + ',"ir":[\n' + rows.join(',\n') + '\n]}';
+  }
+
+  const PY = `#!/usr/bin/env python3
+"""hrir_set.json を SOFA (SimpleFreeFieldHRIR) に変換します。
+
+使い方:
+    pip install sofar numpy
+    python to_sofa.py                 # hrir_set.json -> personal_hrtf.sofa
+    python to_sofa.py in.json out.sofa
+"""
+import json
+import sys
+
+import numpy as np
+
+try:
+    import sofar as sf
+except ImportError:
+    sys.exit("sofar が見つかりません。 pip install sofar を実行してください。")
+
+src = sys.argv[1] if len(sys.argv) > 1 else "hrir_set.json"
+dst = sys.argv[2] if len(sys.argv) > 2 else "personal_hrtf.sofa"
+
+with open(src, encoding="utf-8") as f:
+    d = json.load(f)
+
+ir = np.asarray(d["ir"], dtype=float)            # (M, 2, N)  receivers: 0 = left, 1 = right
+pos = np.asarray(d["positions"], dtype=float)    # (M, 2)     azimuth, elevation [deg]
+pos = np.column_stack([pos, np.full(len(pos), d.get("radius_m", 1.2))])
+assert ir.shape[0] == pos.shape[0] and ir.shape[1] == 2
+
+sofa = sf.Sofa("SimpleFreeFieldHRIR")
+sofa.GLOBAL_Title = "Ear-shape personalised HRTF (structural model)"
+sofa.GLOBAL_ListenerShortName = d.get("listener", "ear-hrtf")
+sofa.Data_IR = ir
+sofa.Data_SamplingRate = float(d["fs"])
+sofa.SourcePosition = pos
+sofa.SourcePosition_Type = "spherical"
+sofa.SourcePosition_Units = "degree, degree, metre"
+sf.write_sofa(dst, sofa)
+print(f"wrote {dst}: {ir.shape[0]} directions, {ir.shape[2]} taps @ {d['fs']} Hz")
+`;
+
+  const README = (meta) => `耳形状HRTF 書き出しセット
+==========================
+
+作成日時: ${meta.created}
+サンプリング周波数: ${meta.fs} Hz / HRIR長: ${meta.taps} サンプル
+方向数: ${meta.count}（方位 5°刻み × 仰角 -40〜80° 10°刻み + 真上）
+頭部有効半径: ${(meta.head_radius_m * 1000).toFixed(1)} mm
+
+座標系（SOFA と同じ）
+  方位角 az: 0° = 正面、90° = 左、180° = 真後ろ、270° = 右
+  仰角 el: 0° = 水平、90° = 真上
+
+ファイル
+  wav/azAAA_elpEE.wav   各方向のステレオHRIR（1ch = 左耳, 2ch = 右耳, 32bit float）
+                        elm は負の仰角（例: elm20 = -20°）
+  hrir_set.json         全方向のHRIRと計測値
+  to_sofa.py            SOFA 変換スクリプト（pip install sofar numpy が必要）
+  apo/                  Equalizer APO 用 GraphicEQ（スピーカー±30° / 正面0°）
+  hesuvi/               HeSuVi 用 14ch HRIR（48 kHz と 44.1 kHz）
+
+wav/ と hrir_set.json は自由音場（無響室）基準です。
+apo/ と hesuvi/ はヘッドホン用に拡散音場で補正しています。
+
+SOFA にする
+  python to_sofa.py
+  → personal_hrtf.sofa ができます。SOFA 対応のバイノーラルプラグインや
+    ffmpeg の sofalizer などでそのまま使えます。
+
+注意
+  これは耳介輪郭からの構造モデルによる近似です。実測や3Dスキャン＋数値計算(BEM)の
+  HRTFほど正確ではありません。定位の個人差（特に上下・前後）の傾向をつかむ用途向けです。
+`;
+
+  const HESUVI_README = `HeSuVi 用 HRIR（耳形HRTFラボ）
+================================
+
+hrir/ear-hrtf.wav      48 kHz, 14ch, 32bit float
+hrir/44/ear-hrtf.wav   44.1 kHz 版
+
+入れ方
+  1. hrir フォルダの中身を C:\\Program Files\\EqualizerAPO\\config\\HeSuVi\\hrir に
+     コピーします（44 フォルダもそのまま）。
+  2. HeSuVi を開き、Virtualization タブで ear-hrtf を選びます。
+  3. 再生デバイスのサンプリング周波数は 48000 Hz か 44100 Hz にします。
+
+中身
+  スピーカー配置: FL +30°, FR -30°, FC 0°, SL +90°, SR -90°, BL +150°, BR -150°（仰角 0°）
+  チャンネル順（HeSuVi 14ch 形式）:
+    FL-左耳, FL-右耳, SL-左耳, SL-右耳, BL-左耳, BL-右耳, FC-左耳,
+    FR-右耳, FR-左耳, SR-右耳, SR-左耳, BR-右耳, BR-左耳, FC-右耳
+  ヘッドホン再生用に拡散音場で補正済みです。部屋の響きは入っていません（無響）。
+`;
+
+  return { HESUVI_README, wavMulti, eqFreqs, apoGraphicEQ, crc32, makeZip, wav, wavName, setJSON, PY, README };
+})();
+if (typeof module !== 'undefined') module.exports = HRTFIO;
+
+</script>
+<script>
+(() => {
+  const H = HRTFCore, IO = HRTFIO;
+  // served next to ExoSpace (GitHub Pages / the installed app) rather than inside claude.ai
+  const STANDALONE = !/(^|\.)claude\.(ai|site)$|claudeusercontent/.test(location.hostname) && !window.claude;
+  if (!STANDALONE) document.getElementById('qSend').target = '_blank';
+  else { const b = document.createElement('a'); b.href = './'; b.className = 'btn'; b.textContent = '← ExoSpace に戻る'; document.querySelector('.top').appendChild(b); }
+  const $ = (id) => document.getElementById(id);
+  const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  const HINTS = {
+    scale: '長さがわかる2点をタップします。耳の横に定規か、クレジットカードなどのカード（長い辺 85.6 mm）を一緒に写すのが確実です。ない場合は、耳のいちばん上と耳たぶの下端（成人でおよそ60〜70 mm）を使い、下の「実寸」を合わせてください。',
+    canal: '外耳道の入口（耳の穴の中心）をタップします。',
+    c1: '耳輪＝耳のいちばん外側のふち。上の前側から後ろを回り、耳たぶの手前まで、ふちの内側の縁を順にタップします。',
+    c2: '対耳輪＝耳輪の内側にある隆起。外耳道に面した側の縁を、上から下へ順にタップします。',
+    c3: '耳甲介の縁＝耳の穴のまわりのくぼみの、後ろ側の壁。上から下へ順にタップします。',
+  };
+  const MODES = ['scale', 'canal', 'c1', 'c2', 'c3'];
+
+  const blankEar = (front) => ({ img: null, demo: false, name: '', scale: [], canal: null, contours: [[], [], []], front, tilt: 0, scaleMm: 65, table: null, frontAuto: true, norm: null, placeholder: false });
+  const S = {
+    ears: { R: blankEar(1), L: blankEar(-1) }, ear: 'R',
+    mode: 'c1', P: Object.assign({}, H.DEFAULTS),
+    az: -30, el: 0, // az: SOFA convention (+ = left), so -30 = 30 deg to the right
+    tables: { L: null, R: null }, df: null, eqVariant: 'spk',
+  };
+  const E = () => S.ears[S.ear];
+  const EARNAME = { R: '右耳', L: '左耳' }, OTHER = { R: 'L', L: 'R' };
+
+  // ---------- load images ----------
+  function loadDemo() {
+    const im = new Image();
+    im.onload = () => {
+      E().img = im; E().demo = true; E().name = '見本の耳';
+      const g = DemoEar.geom;
+      E().scale = g.scale.map(p => ({ ...p })); E().scaleMm = g.scaleMm; E().canal = { ...g.canal };
+      E().contours = g.contours.map(c => c.map(p => ({ ...p }))); E().front = g.front; E().tilt = 0;
+      ZOOM = 1; setZoom(1); syncEarUI(); setMode('c1'); layoutBench(); recompute();
+    };
+    im.src = DemoEar.dataURL();
+  }
+  function loadPhoto(f) { return new Promise((resolve) => {
+    const url = URL.createObjectURL(f), im = new Image();
+    const use = (src, w, h) => {
+      const maxD = 1600, k = Math.min(1, maxD / Math.max(w, h));
+      const c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
+      c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      const norm = E().norm, keep = norm && Math.abs(c.width / c.height - norm.image.w / norm.image.h) < 0.02;
+      Object.assign(E(), blankEar(S.ear === 'L' ? -1 : 1), { img: c, name: f.name.length > 24 ? f.name.slice(0, 22) + '…' : f.name });
+      if (keep) applyTrace(E(), norm);
+      ZOOM = 1; setZoom(1); syncEarUI(); setMode(keep ? 'c1' : 'scale'); layoutBench(); recompute();
+      if (keep) $('hint').innerHTML = '読み込んだ計測値の輪郭を写真に重ねました。ずれている点はドラッグで直せます。';
+      resolve(true);
+    };
+    im.onload = () => use(im, im.naturalWidth, im.naturalHeight);
+    im.onerror = () => {
+      // fallback decoder (some phone browsers refuse blob URLs but accept the File itself)
+      const fail = () => { URL.revokeObjectURL(url); $('srcLabel').textContent = 'この画像は読み込めませんでした。JPEGかPNGを選んでください'; resolve(false); };
+      if (!window.createImageBitmap) return fail();
+      createImageBitmap(f).then((bm) => use(bm, bm.width, bm.height), fail);
+    };
+    im.src = url;
+  }); }
+  $('photo').addEventListener('change', async (e) => {
+    const inp = e.target, f = inp.files && inp.files[0]; if (!f) return;
+    $('srcLabel').textContent = '読み込み中…';
+    try { await loadPhoto(f); } catch (err) { $('srcLabel').textContent = '読み込みに失敗しました：' + (err && err.message || err); }
+    finally { try { inp.value = ''; } catch (x) {} }
+  });
+  $('demoBtn').addEventListener('click', loadDemo);
+
+  // normalized trace (0-1 image coordinates) for save / load
+  function traceExport(k) {
+    const e = S.ears[k]; if (!e.img || e.demo || !e.canal) return null;
+    const W = e.img.naturalWidth || e.img.width, Hh = e.img.naturalHeight || e.img.height, r = (v) => +v.toFixed(5);
+    const n = (p) => [r(p.x / W), r(p.y / Hh)];
+    return { image: { w: W, h: Hh }, canal: n(e.canal), scale: e.scale.map(n), scaleMm: e.scaleMm, front: e.front, tilt: e.tilt, contours: e.contours.map((c) => c.map(n)) };
+  }
+  function applyTrace(e, t) {
+    const W = e.img.naturalWidth || e.img.width, Hh = e.img.naturalHeight || e.img.height, P = (p) => ({ x: p[0] * W, y: p[1] * Hh });
+    e.canal = t.canal ? P(t.canal) : null; e.scale = (t.scale || []).map(P); e.scaleMm = +t.scaleMm || 65;
+    e.contours = [0, 1, 2].map((i) => ((t.contours || [])[i] || []).map(P));
+    e.front = t.front === -1 ? -1 : 1; e.tilt = Math.max(-30, Math.min(30, +t.tilt || 0)); e.frontAuto = false; e.norm = t;
+  }
+  function placeholderImage(t) {
+    const k = Math.min(1, 1600 / Math.max(t.image.w, t.image.h)), c = document.createElement('canvas');
+    c.width = Math.round(t.image.w * k); c.height = Math.round(t.image.h * k);
+    const g = c.getContext('2d'); g.fillStyle = '#c9d3d4'; g.fillRect(0, 0, c.width, c.height);
+    g.fillStyle = '#4d6264'; g.textAlign = 'center'; g.font = `${Math.round(c.width / 22)}px sans-serif`;
+    g.fillText('写真なし（計測値のみ）', c.width / 2, c.height * 0.12);
+    g.font = `${Math.round(c.width / 30)}px sans-serif`;
+    g.fillText('同じ写真を選ぶと輪郭を重ねて調整できます', c.width / 2, c.height * 0.12 + c.width / 16);
+    return c;
+  }
+  function applyGeomData(d, skip = []) {
+    const tr = d && d.trace, loaded = [];
+    for (const [key, k] of [['right', 'R'], ['left', 'L']]) {
+      const t = tr && tr[key]; if (!t || !t.image || !t.canal || skip.includes(k)) continue;
+      const e = S.ears[k];
+      const match = e.img && !e.demo && Math.abs((e.img.width / e.img.height) - t.image.w / t.image.h) < 0.02;
+      if (!match) Object.assign(e, blankEar(k === 'L' ? -1 : 1), { img: placeholderImage(t), placeholder: true, name: '計測値のみ' });
+      applyTrace(e, t); loaded.push(EARNAME[k]);
+    }
+    if (d && d.head_mm) {
+      for (const [id, key] of [['headW', 'width'], ['headH', 'height'], ['headD', 'depth']]) if (isFinite(+d.head_mm[key])) $(id).value = +d.head_mm[key];
+    }
+    if (loaded.length) {
+      if (!E().canal) S.ear = S.ears.R.canal ? 'R' : 'L';
+      syncEarUI(); setMode('c1'); layoutBench(); recompute();
+    }
+    return loaded;
+  }
+  $('importGeom').addEventListener('change', async (ev) => {
+    const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; if (!f) return;
+    const msg = $('exportMsg');
+    let d; try { d = JSON.parse(await f.text()); } catch (e) { msg.textContent = 'JSONとして読めませんでした。このツールで保存した計測値ファイルを選んでください。'; return; }
+    const loaded = applyGeomData(d);
+    msg.textContent = loaded.length ? `計測値を読み込みました（${loaded.join('・')}）。` : 'このファイルには輪郭のデータがありません。「計測値を保存」で作ったファイルを選んでください。';
+  });
+
+  // face direction from the trace: the helix lies behind the ear canal
+  function autoFront() {
+    const e = E(), h = e.contours[0];
+    if (!e.frontAuto || !e.canal || h.length < 3) return false;
+    const cx = h.reduce((s, p) => s + p.x, 0) / h.length, nf = cx > e.canal.x ? -1 : 1;
+    if (nf === e.front) return false;
+    e.front = nf; syncFront(); return true;
+  }
+  $('clearEar').addEventListener('click', () => { Object.assign(E(), blankEar(S.ear === 'L' ? -1 : 1)); syncEarUI(); layoutBench(); recompute(); });
+  function syncEarUI() {
+    document.querySelectorAll('#earSeg button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.ear === S.ear));
+    const e = E();
+    $('srcLabel').textContent = e.img ? e.name : '写真なし';
+    $('scaleMm').value = e.scaleMm; $('tilt').value = e.tilt; $('tiltOut').textContent = e.tilt + '°';
+    $('clearEar').hidden = !e.img;
+    syncFront();
+    const st = (k) => { const x = S.ears[k]; return x.table ? (x.demo ? '見本' : '計測済み') : (S.ears[OTHER[k]].table ? EARNAME[OTHER[k]] + 'を反転して使用' : '未計測'); };
+    $('earStatus').textContent = `右耳：${st('R')}　左耳：${st('L')}`;
+    $('heatEar').textContent = EARNAME[S.ear];
+    syncAI();
+  }
+  $('earSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b || b.dataset.ear === S.ear) return;
+    S.ear = b.dataset.ear; ZOOM = 1; setZoom(1); syncEarUI(); setMode(E().img && geom() ? 'c1' : 'scale'); layoutBench(); recompute();
+  });
+
+  // ---------- bench canvas ----------
+  const bench = $('bench'), bctx = bench.getContext('2d');
+  const imgW = () => E().img ? (E().img.naturalWidth || E().img.width) : 1;
+  const imgH = () => E().img ? (E().img.naturalHeight || E().img.height) : 1;
+  function layoutBench() {
+    if (!E().img) { // placeholder for an ear without a photo
+      bench.width = 800; bench.height = 520;
+      const sc = Math.min(1, $('benchWrap').clientWidth / 800);
+      bench.style.width = Math.round(800 * sc) + 'px'; bench.style.height = Math.round(520 * sc) + 'px';
+      const c = bctx; c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = css('--sunk'); c.fillRect(0, 0, 800, 520);
+      c.fillStyle = css('--muted'); c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.font = `500 34px ${css('--f-sans')}`; c.fillText(`${EARNAME[S.ear]}の写真はまだありません`, 400, 210);
+      c.font = `26px ${css('--f-sans')}`;
+      const o = S.ears[OTHER[S.ear]];
+      c.fillText(o.table ? `いまは${EARNAME[OTHER[S.ear]]}の形を左右反転して使っています` : '「耳の写真を選ぶ」から読み込んでください', 400, 270);
+      c.fillText('耳と同じ高さから、真横に撮ってください', 400, 314);
+      updateCounts(); return;
+    }
+    bench.width = imgW(); bench.height = imgH();
+    const wrap = $('benchWrap'), wrapW = wrap.clientWidth, maxH = Math.max(320, window.innerHeight * 0.66);
+    const sc = Math.min(wrapW / bench.width, maxH / bench.height), baseH = Math.round(bench.height * sc);
+    bench.style.width = Math.round(bench.width * sc * ZOOM) + 'px'; bench.style.height = Math.round(baseH * ZOOM) + 'px';
+    wrap.classList.toggle('zoomed', ZOOM > 1); wrap.style.height = ZOOM > 1 ? baseH + 'px' : '';
+    drawBench();
+  }
+  // ---------- zoom ----------
+  let ZOOM = 1;
+  function zoomCenter() {
+    const e = E(), pts = [...e.contours.flat(), ...(e.canal ? [e.canal] : [])];
+    if (e.canal) return e.canal;
+    if (pts.length) return pts[pts.length - 1];
+    if (e.scale.length) return e.scale[e.scale.length - 1];
+    return { x: imgW() / 2, y: imgH() / 2 };
+  }
+  function setZoom(z) {
+    ZOOM = z; $('zoomBtn').textContent = `拡大 ×${z}`;
+    if (!E().img) { ZOOM = 1; $('zoomBtn').textContent = '拡大 ×1'; return; }
+    const c = zoomCenter(); layoutBench();
+    const wrap = $('benchWrap'), k = bench.clientWidth / bench.width;
+    wrap.scrollLeft = c.x * k - wrap.clientWidth / 2 + bench.offsetLeft; wrap.scrollTop = c.y * k - wrap.clientHeight / 2;
+    if (z > 1 && !sessionHintShown) { sessionHintShown = true; $('hint').innerHTML = HINTS[S.mode] + ' <em>拡大中は、何もない所をドラッグすると写真を動かせます。</em>'; }
+  }
+  let sessionHintShown = false;
+  $('zoomBtn').addEventListener('click', () => setZoom(ZOOM === 1 ? 2 : ZOOM === 2 ? 4 : 1));
+  const kpx = () => bench.width / (bench.clientWidth || bench.width); // image px per css px
+
+  function pointsFor(mode) {
+    if (mode === 'scale') return E().scale;
+    if (mode === 'canal') return E().canal ? [E().canal] : [];
+    return E().contours[+mode[1] - 1];
+  }
+  function geom(k = S.ear) {
+    const e = S.ears[k];
+    if (e.scale.length < 2 || !e.canal) return null;
+    const dpx = Math.hypot(e.scale[0].x - e.scale[1].x, e.scale[0].y - e.scale[1].y);
+    if (dpx < 4 || !(e.scaleMm > 0)) return null;
+    return { canal: e.canal, contours: e.contours, pxPerMm: dpx / e.scaleMm, front: e.front, tiltDeg: e.tilt };
+  }
+
+  function drawBench() {
+    if (!E().img) { updateCounts(); return; }
+    const k = kpx(), c = bctx;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.drawImage(E().img, 0, 0, bench.width, bench.height);
+    const halo = 'rgba(0,0,0,.55)';
+    const line = (pts, col, w, dash) => {
+      if (pts.length < 2) return;
+      c.setLineDash(dash ? dash.map(x => x * k) : []);
+      c.lineJoin = 'round'; c.lineCap = 'round';
+      c.beginPath(); pts.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y));
+      c.strokeStyle = halo; c.lineWidth = (w + 2.5) * k; c.stroke();
+      c.strokeStyle = col; c.lineWidth = w * k; c.stroke(); c.setLineDash([]);
+    };
+    const dot = (p, col, r, active) => {
+      c.beginPath(); c.arc(p.x, p.y, (r + 1.5) * k, 0, 7); c.fillStyle = halo; c.fill();
+      c.beginPath(); c.arc(p.x, p.y, r * k, 0, 7); c.fillStyle = col; c.fill();
+      if (active) { c.beginPath(); c.arc(p.x, p.y, (r + 4) * k, 0, 7); c.strokeStyle = col; c.lineWidth = 1.5 * k; c.stroke(); }
+    };
+    const g = geom();
+    // horizontal reference + current ray
+    if (E().canal) {
+      const t = E().tilt * Math.PI / 180, L = Math.max(bench.width, bench.height);
+      const fx = E().front * Math.cos(t), fy = -E().front * Math.sin(t);
+      line([{ x: E().canal.x - fx * L, y: E().canal.y - fy * L }, { x: E().canal.x + fx * L, y: E().canal.y + fy * L }], 'rgba(255,255,255,.55)', 1, [6, 6]);
+      // front arrow
+      const ax = E().canal.x + fx * 60 * k, ay = E().canal.y + fy * 60 * k;
+      c.font = `${12 * k}px ${css('--f-sans') || 'sans-serif'}`; c.fillStyle = '#fff'; c.textAlign = 'center';
+      c.strokeStyle = halo; c.lineWidth = 3 * k; c.strokeText('前', ax, ay - 8 * k); c.fillText('前', ax, ay - 8 * k);
+    }
+    const cols = [css('--c1'), css('--c2'), css('--c3')];
+    E().contours.forEach((pts, i) => {
+      line(pts, cols[i], 2.5);
+      pts.forEach((p) => dot(p, cols[i], S.mode === 'c' + (i + 1) ? 4 : 2.6, false));
+    });
+    if (E().scale.length) {
+      line(E().scale, css('--scale'), 2, [8, 5]);
+      E().scale.forEach((p) => dot(p, css('--scale'), 4.5, S.mode === 'scale'));
+    }
+    if (E().canal) dot(E().canal, css('--canal'), 6, S.mode === 'canal');
+    // reflection ray for the current direction, this ear
+    if (g && E().table) {
+      const info = H.earInfo(S.P, E().table, S.az, S.el, S.ear);
+      const d = H.rayDir(g, info.beta), Lr = 45 * g.pxPerMm;
+      line([E().canal, { x: E().canal.x + d.x * Lr, y: E().canal.y + d.y * Lr }], '#ffffff', 1.4, [3, 4]);
+      const dist = H.distAt(E().table, info.beta);
+      dist.forEach((mm, i) => {
+        if (isNaN(mm)) return;
+        const p = { x: E().canal.x + d.x * mm * g.pxPerMm, y: E().canal.y + d.y * mm * g.pxPerMm };
+        dot(p, cols[i], 5, true);
+        const f = H.C / (2 * mm / 1000);
+        c.font = `500 ${12 * k}px ${css('--f-mono') || 'monospace'}`; c.textAlign = 'left';
+        const tx = p.x + 7 * k, ty = p.y + (i === 1 ? 19 : -9) * k; const s = (f / 1000).toFixed(1) + 'k';
+        c.strokeStyle = halo; c.lineWidth = 3.5 * k; c.strokeText(s, tx, ty); c.fillStyle = '#fff'; c.fillText(s, tx, ty);
+      });
+    }
+    updateCounts();
+  }
+  function updateCounts() {
+    document.querySelectorAll('[data-count]').forEach((el) => {
+      const m = el.dataset.count, n = pointsFor(m).length;
+      el.textContent = m === 'scale' ? `${n}/2` : m === 'canal' ? `${n}/1` : `${n}点`;
+      el.classList.toggle('ok', m === 'scale' ? n === 2 : m === 'canal' ? n === 1 : n >= 3);
+    });
+  }
+
+  function setMode(m) {
+    S.mode = m;
+    document.querySelectorAll('.mode').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === m));
+    $('hint').innerHTML = HINTS[m] + ' <em>点はドラッグで動かせます。</em>';
+    drawBench();
+  }
+  $('modes').addEventListener('click', (e) => { const b = e.target.closest('.mode'); if (b) setMode(b.dataset.mode); });
+
+  let drag = null, press = null;
+  function evPt(e) { const r = bench.getBoundingClientRect(); return { x: (e.clientX - r.left) * bench.width / r.width, y: (e.clientY - r.top) * bench.height / r.height }; }
+  function addPoint(p) {
+    const pts = pointsFor(S.mode);
+    if (S.mode === 'scale') { if (E().scale.length >= 2) E().scale = []; E().scale.push(p); if (E().scale.length === 2) setTimeout(() => setMode('canal'), 250); }
+    else if (S.mode === 'canal') { E().canal = p; setTimeout(() => { if (!E().contours[0].length) setMode('c1'); }, 250); }
+    else pts.push(p);
+    drawBench(); scheduleRecompute();
+  }
+  bench.addEventListener('pointerdown', (e) => {
+    if (!E().img) return;
+    const p = evPt(e), pts = pointsFor(S.mode), R = 16 * kpx();
+    let hit = -1, best = R;
+    pts.forEach((q, i) => { const d = Math.hypot(q.x - p.x, q.y - p.y); if (d < best) { best = d; hit = i; } });
+    try { bench.setPointerCapture(e.pointerId); } catch (err) {}
+    if (hit >= 0) { drag = { i: hit }; return; }
+    const w = $('benchWrap'); press = { x: e.clientX, y: e.clientY, p, panned: false, sl: w.scrollLeft, st: w.scrollTop };
+  });
+  bench.addEventListener('pointermove', (e) => {
+    if (drag) {
+      const p = evPt(e);
+      if (S.mode === 'canal') E().canal = p; else { const pts = pointsFor(S.mode); pts[drag.i].x = p.x; pts[drag.i].y = p.y; }
+      drawBench(); scheduleRecompute(); return;
+    }
+    if (!press) return;
+    const dx = e.clientX - press.x, dy = e.clientY - press.y;
+    if (!press.panned && ZOOM > 1 && Math.hypot(dx, dy) > 8) press.panned = true;
+    if (press.panned) { const w = $('benchWrap'); w.scrollLeft = press.sl - dx; w.scrollTop = press.st - dy; }
+  });
+  bench.addEventListener('pointerup', () => { if (press && !press.panned) addPoint(press.p); press = null; drag = null; });
+  bench.addEventListener('pointercancel', () => { press = null; drag = null; });
+
+  $('undo').addEventListener('click', () => {
+    if (S.mode === 'canal') E().canal = null; else pointsFor(S.mode).pop();
+    drawBench(); scheduleRecompute();
+  });
+  $('clearMode').addEventListener('click', () => {
+    if (S.mode === 'canal') E().canal = null; else if (S.mode === 'scale') E().scale = []; else E().contours[+S.mode[1] - 1] = [];
+    drawBench(); scheduleRecompute();
+  });
+  $('frontSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; E().front = +b.dataset.front; E().frontAuto = false; syncFront(); scheduleRecompute(); });
+  function syncFront() {
+    document.querySelectorAll('#frontSeg button').forEach((b) => b.setAttribute('aria-pressed', +b.dataset.front === E().front));
+    const e = E(); $('frontAuto').textContent = e.frontAuto && e.canal && e.contours[0].length >= 3 ? '（自動）' : '';
+  }
+  $('scaleMm').addEventListener('input', (e) => { E().scaleMm = +e.target.value; scheduleRecompute(); });
+  $('tilt').addEventListener('input', (e) => { E().tilt = +e.target.value; $('tiltOut').textContent = E().tilt + '°'; scheduleRecompute(); });
+
+  // ---------- params ----------
+  const PMAP = { headW: 'headW', headH: 'headH', headD: 'headD', nq: 'notchQ', p1f: 'p1f', p1g: 'p1g', bs: 'backShadow' };
+  function readParams() {
+    for (const [id, key] of Object.entries(PMAP)) { const v = parseFloat($(id).value); if (isFinite(v)) S.P[key] = v; }
+    S.P.depth = ['d1', 'd2', 'd3'].map((id, i) => { const v = parseFloat($(id).value); return isFinite(v) ? Math.min(0, v) : H.DEFAULTS.depth[i]; });
+    S.P.notchQ = Math.max(0.5, S.P.notchQ);
+  }
+  ['headW', 'headH', 'headD', 'nq', 'p1f', 'p1g', 'bs', 'd1', 'd2', 'd3'].forEach((id) => $(id).addEventListener('input', scheduleRecompute));
+
+  // ---------- compute ----------
+  let rt = 0;
+  function scheduleRecompute() { clearTimeout(rt); rt = setTimeout(recompute, 90); }
+  function recompute() {
+    readParams();
+    autoFront(); syncFront();
+    const g = geom();
+    E().table = g ? H.buildDistanceTable(g) : null;
+    { const ok = OTHER[S.ear], og = geom(ok); S.ears[ok].table = og ? H.buildDistanceTable(og) : null; }
+    for (const k of ['R', 'L']) S.tables[k] = S.ears[k].table || S.ears[OTHER[k]].table;
+    S.df = null; // diffuse field recomputed lazily
+    const nc = E().contours.filter(c => c.length >= 2).length;
+    const w = $('geomWarn');
+    if (!S.tables[S.ear]) { w.hidden = false; w.textContent = 'スケールと外耳道がまだ入力されていません。いまは頭部の影響だけで計算しています。'; }
+    else if (!g) { w.hidden = false; w.textContent = `この耳はまだ計測していないので、${EARNAME[OTHER[S.ear]]}の形を左右反転して使っています。`; }
+    else if (!nc) { w.hidden = false; w.textContent = '輪郭がまだありません。耳輪・対耳輪・耳甲介の縁をなぞるとノッチが入ります。'; }
+    else w.hidden = true;
+    $('aOut').textContent = (H.headRadius(S.P.headW, S.P.headH, S.P.headD) * 1000).toFixed(1) + ' mm';
+    syncEarUI(); drawBench(); drawHeat(); drawDirection(); drawEq(); syncBatch();
+  }
+  function getDF(P = S.P) {
+    if (P === S.P && S.df) return S.df;
+    const df = { L: H.dfBins(P, S.tables.L, 'L'), R: H.dfBins(P, S.tables.R, 'R') };
+    if (P === S.P) S.df = df;
+    return df;
+  }
+
+  // ---------- charts ----------
+  function prepCanvas(cv) {
+    if (!cv.dataset.h) cv.dataset.h = cv.getAttribute('height');
+    const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = +cv.dataset.h;
+    cv.style.height = h + 'px';
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+    return { c, w, h };
+  }
+  const MAG_STOPS = [[0, [12, 10, 38]], [0.2, [59, 15, 112]], [0.42, [140, 41, 129]], [0.62, [222, 73, 104]], [0.82, [254, 159, 109]], [1, [252, 253, 191]]];
+  function cmap(t) {
+    t = Math.max(0, Math.min(1, t));
+    for (let i = 0; i + 1 < MAG_STOPS.length; i++) if (t <= MAG_STOPS[i + 1][0]) {
+      const [t0, a] = MAG_STOPS[i], [t1, b] = MAG_STOPS[i + 1], f = (t - t0) / (t1 - t0);
+      return a.map((v, k) => Math.round(v + (b[k] - v) * f));
+    }
+    return MAG_STOPS[MAG_STOPS.length - 1][1];
+  }
+  const DBMIN = -24, DBMAX = 14, BMIN = -45, BMAX = 225, FMAX = 18000;
+  const medianDir = (b) => b <= 90 ? [0, b] : [180, 180 - b];
+  let heatGeo = null;
+  function drawHeat() {
+    const cv = $('heat'), { c, w, h } = prepCanvas(cv);
+    const m = { l: 40, r: 10, t: 8, b: 34 }, pw = w - m.l - m.r, ph = h - m.t - m.b;
+    heatGeo = { m, pw, ph };
+    const cols = 136, rows = 144, off = document.createElement('canvas'); off.width = cols; off.height = rows;
+    const oc = off.getContext('2d'), im = oc.createImageData(cols, rows);
+    for (let i = 0; i < cols; i++) {
+      const b = BMIN + (BMAX - BMIN) * i / (cols - 1), [az, el] = medianDir(b);
+      const info = H.earInfo(S.P, S.tables[S.ear], az, el, S.ear);
+      for (let j = 0; j < rows; j++) {
+        const f = 200 + (FMAX - 200) * (rows - 1 - j) / (rows - 1);
+        const [r, g, bb] = cmap((H.magDb(S.P, info, f) - DBMIN) / (DBMAX - DBMIN));
+        const o = (j * cols + i) * 4; im.data[o] = r; im.data[o + 1] = g; im.data[o + 2] = bb; im.data[o + 3] = 255;
+      }
+    }
+    oc.putImageData(im, 0, 0);
+    c.imageSmoothingEnabled = true; c.drawImage(off, m.l, m.t, pw, ph);
+    const X = (b) => m.l + (b - BMIN) / (BMAX - BMIN) * pw, Y = (f) => m.t + ph - f / FMAX * ph;
+    // notch tracks
+    const tb = S.tables[S.ear];
+    if (tb) {
+      const cl = [css('--c1'), css('--c2'), css('--c3')];
+      for (let k = 0; k < 3; k++) {
+        c.setLineDash([5, 4]); c.lineWidth = 2; c.strokeStyle = cl[k];
+        c.beginPath(); let pen = false;
+        for (let b = BMIN; b <= BMAX; b += 1) {
+          const mm = H.distAt(tb, b)[k], f = H.C / (2 * mm / 1000);
+          if (isNaN(mm) || f > FMAX || f < 1500) { pen = false; continue; }
+          pen ? c.lineTo(X(b), Y(f)) : c.moveTo(X(b), Y(f)); pen = true;
+        }
+        c.stroke(); c.setLineDash([]);
+      }
+    }
+    // axes
+    const fg = css('--fg'), mu = css('--muted');
+    c.font = `11px ${css('--f-mono')}`; c.fillStyle = mu; c.textAlign = 'right'; c.textBaseline = 'middle';
+    for (let f = 0; f <= FMAX; f += 3000) { c.fillText((f / 1000) + 'k', m.l - 6, Y(f)); }
+    c.textAlign = 'center'; c.textBaseline = 'top';
+    const ticks = [[-45, '-45°'], [0, '前'], [90, '真上'], [180, '後'], [225, '']];
+    ticks.forEach(([b, s]) => {
+      c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1; c.beginPath(); c.moveTo(X(b), m.t); c.lineTo(X(b), m.t + ph); c.stroke();
+      c.fillStyle = mu; c.fillText(s, X(b), m.t + ph + 6);
+    });
+    c.fillStyle = mu; c.font = `11px ${css('--f-sans')}`; c.textAlign = 'left'; c.fillText('kHz', 4, m.t + ph + 6);
+    // current direction marker (median-plane projection)
+    const info = H.earInfo(S.P, tb, S.az, S.el, S.ear);
+    if (info.beta >= BMIN && info.beta <= BMAX) {
+      c.strokeStyle = fg; c.lineWidth = 1.5; c.beginPath(); c.moveTo(X(info.beta), m.t); c.lineTo(X(info.beta), m.t + ph); c.stroke();
+      c.fillStyle = fg; c.beginPath(); c.moveTo(X(info.beta) - 5, m.t); c.lineTo(X(info.beta) + 5, m.t); c.lineTo(X(info.beta), m.t + 7); c.fill();
+    }
+    $('heatScale').textContent = `色: ${DBMIN}〜+${DBMAX} dB`;
+  }
+  $('heat').addEventListener('pointerdown', (e) => {
+    if (!heatGeo) return;
+    const r = e.currentTarget.getBoundingClientRect(), x = e.clientX - r.left;
+    const b = BMIN + (x - heatGeo.m.l) / heatGeo.pw * (BMAX - BMIN);
+    if (b < BMIN || b > BMAX) return;
+    const [az, el] = medianDir(Math.round(b / 5) * 5);
+    S.az = az; S.el = Math.max(-40, Math.min(90, el)); syncDirInputs(); drawAllDir();
+  });
+
+  function respDb(h) { // magnitude dB of an HRIR at log-spaced freqs
+    const n = 2048, re = new Float64Array(n), im = new Float64Array(n);
+    h.forEach((v, i) => re[i] = v); H.fft(re, im, false);
+    return (f) => { const k = Math.round(f / S.P.fs * n); return 10 * Math.log10(re[k] * re[k] + im[k] * im[k] + 1e-12); };
+  }
+  let lastIR = null;
+  function drawDirection() {
+    const d = H.direction(S.P, S.tables, S.az, S.el);
+    const hl = H.hrir(S.P, d.L), hr = H.hrir(S.P, d.R); lastIR = [hl, hr];
+    // readouts
+    const e = (h) => h.reduce((s, v) => s + v * v, 0);
+    $('itdOut').textContent = Math.round(Math.abs(d.itd) * 1e6) + ' µs';
+    const ild = 10 * Math.log10(e(hl) / e(hr));
+    $('ildOut').textContent = (Math.abs(ild) < 0.05 ? '0.0' : (ild > 0 ? '左 +' : '右 +') + Math.abs(ild).toFixed(1)) + ' dB';
+    $('betaOut').textContent = Math.round(d.L.beta) + '°';
+    // response chart
+    { const cv = $('resp'), { c, w, h } = prepCanvas(cv);
+      const m = { l: 36, r: 10, t: 8, b: 24 }, pw = w - m.l - m.r, ph = h - m.t - m.b;
+      const F0 = 100, F1 = 20000, D0 = -30, D1 = 15;
+      const X = (f) => m.l + Math.log(f / F0) / Math.log(F1 / F0) * pw, Y = (db) => m.t + (D1 - db) / (D1 - D0) * ph;
+      const mu = css('--muted'), ln = css('--line');
+      c.strokeStyle = ln; c.lineWidth = 1; c.font = `11px ${css('--f-mono')}`; c.fillStyle = mu;
+      [100, 200, 500, 1000, 2000, 5000, 10000, 20000].forEach((f) => { c.beginPath(); c.moveTo(X(f), m.t); c.lineTo(X(f), m.t + ph); c.stroke(); c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(f >= 1000 ? (f / 1000) + 'k' : f, X(f), m.t + ph + 6); });
+      [-30, -15, 0, 15].forEach((db) => { c.beginPath(); c.moveTo(m.l, Y(db)); c.lineTo(m.l + pw, Y(db)); c.stroke(); c.textAlign = 'right'; c.textBaseline = 'middle'; c.fillText(db, m.l - 6, Y(db)); });
+      c.strokeStyle = css('--muted'); c.globalAlpha = .6; c.beginPath(); c.moveTo(m.l, Y(0)); c.lineTo(m.l + pw, Y(0)); c.stroke(); c.globalAlpha = 1;
+      [[hl, css('--left')], [hr, css('--right')]].forEach(([h, col]) => {
+        const R = respDb(h); c.strokeStyle = col; c.lineWidth = 2; c.beginPath();
+        for (let i = 0; i <= 300; i++) { const f = F0 * Math.pow(F1 / F0, i / 300), y = Y(Math.max(D0, Math.min(D1, R(f)))); i ? c.lineTo(X(f), y) : c.moveTo(X(f), y); }
+        c.stroke();
+      });
+    }
+    // HRIR chart
+    { const cv = $('hrir'), { c, w, h } = prepCanvas(cv);
+      const m = { l: 36, r: 10, t: 6, b: 22 }, pw = w - m.l - m.r, ph = h - m.t - m.b, N = hl.length;
+      const pk = Math.max(...hl.map(Math.abs), ...hr.map(Math.abs)) || 1;
+      const X = (i) => m.l + i / (N - 1) * pw, Y = (v) => m.t + ph / 2 - v / pk * ph / 2 * 0.95;
+      c.strokeStyle = css('--line'); c.lineWidth = 1; c.beginPath(); c.moveTo(m.l, Y(0)); c.lineTo(m.l + pw, Y(0)); c.stroke();
+      c.font = `11px ${css('--f-mono')}`; c.fillStyle = css('--muted'); c.textAlign = 'center'; c.textBaseline = 'top';
+      [0, 1, 2, 3, 4, 5].forEach((ms) => { const i = ms * S.P.fs / 1000; if (i < N) c.fillText(ms + (ms ? '' : ' ms'), X(i) + (ms ? 0 : 10), m.t + ph + 6); });
+      [[hl, css('--left')], [hr, css('--right')]].forEach(([h, col]) => { c.strokeStyle = col; c.lineWidth = 1.4; c.beginPath(); h.forEach((v, i) => i ? c.lineTo(X(i), Y(v)) : c.moveTo(X(i), Y(v))); c.stroke(); });
+    }
+    // notch list
+    const NAMES = ['耳輪', '対耳輪', '耳甲介'], CV = ['--c1', '--c2', '--c3'];
+    const nl = $('notchList'); nl.innerHTML = '';
+    const rowsL = d.L.notches.filter(n => n.gain < -0.5), rowsR = d.R.notches.filter(n => n.gain < -0.5);
+    if (!rowsL.length && !rowsR.length) { nl.innerHTML = '<div><em>この方向では耳介反射のノッチは入りません（後方・真上・反対側の耳など）。</em></div>'; }
+    else [0, 1, 2].forEach((k) => {
+      const a = rowsL.find(n => n.contour === k), b = rowsR.find(n => n.contour === k);
+      if (!a && !b) return;
+      const n = a || b, div = document.createElement('div');
+      div.style.setProperty('--c', `var(${CV[k]})`);
+      div.innerHTML = `<span class="dot"></span><span>${NAMES[k]}</span><span class="mono">${(n.f / 1000).toFixed(2)} kHz</span><em>反射距離 ${n.mm.toFixed(1)} mm ・ 左 ${a ? a.gain.toFixed(0) : '—'} / 右 ${b ? b.gain.toFixed(0) : '—'} dB</em>`;
+      nl.appendChild(div);
+    });
+    drawDial();
+  }
+
+  // ---------- dial & direction inputs ----------
+  function drawDial() {
+    const cv = $('dial'), dpr = window.devicePixelRatio || 1, W = cv.clientWidth;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(W * dpr);
+    const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const cx = W / 2, cy = W / 2, R = W / 2 - 10, hr = R * 0.36;
+    c.strokeStyle = css('--line'); c.lineWidth = 1;
+    c.beginPath(); c.arc(cx, cy, R, 0, 7); c.stroke();
+    for (let a = 0; a < 360; a += 30) { const t = a * Math.PI / 180; c.beginPath(); c.moveTo(cx - Math.sin(t) * (R - 4), cy - Math.cos(t) * (R - 4)); c.lineTo(cx - Math.sin(t) * R, cy - Math.cos(t) * R); c.stroke(); }
+    c.fillStyle = css('--sunk'); c.strokeStyle = css('--muted');
+    c.beginPath(); c.moveTo(cx - 6, cy - hr + 1); c.lineTo(cx, cy - hr - 8); c.lineTo(cx + 6, cy - hr + 1); c.fill(); c.stroke();
+    c.beginPath(); c.arc(cx, cy, hr, 0, 7); c.fill(); c.stroke();
+    c.fillStyle = css('--left'); c.beginPath(); c.ellipse(cx - hr, cy, 4, 8, 0, 0, 7); c.fill();
+    c.fillStyle = css('--right'); c.beginPath(); c.ellipse(cx + hr, cy, 4, 8, 0, 0, 7); c.fill();
+    c.font = `600 10px ${css('--f-mono')}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillStyle = css('--muted'); c.fillText('L', cx - hr + 14, cy); c.fillText('R', cx + hr - 14, cy);
+    const t = S.az * Math.PI / 180, rr = R * Math.max(0.15, Math.cos(S.el * Math.PI / 180)) * 0.88 + R * 0.12;
+    const sx = cx - Math.sin(t) * rr, sy = cy - Math.cos(t) * rr;
+    c.strokeStyle = css('--accent'); c.setLineDash([3, 3]); c.beginPath(); c.moveTo(cx, cy); c.lineTo(sx, sy); c.stroke(); c.setLineDash([]);
+    c.fillStyle = css('--accent'); c.beginPath(); c.arc(sx, sy, 6, 0, 7); c.fill();
+  }
+  function setAzFromDial(e) {
+    const r = e.currentTarget.getBoundingClientRect(), dx = e.clientX - r.left - r.width / 2, dy = e.clientY - r.top - r.height / 2;
+    let az = Math.round(Math.atan2(-dx, -dy) * 180 / Math.PI / 5) * 5; if (az <= -180) az += 360;
+    S.az = az; syncDirInputs(); drawAllDir();
+  }
+  let dialDrag = false;
+  $('dial').addEventListener('pointerdown', (e) => { dialDrag = true; e.currentTarget.setPointerCapture(e.pointerId); setAzFromDial(e); });
+  $('dial').addEventListener('pointermove', (e) => { if (dialDrag) setAzFromDial(e); });
+  $('dial').addEventListener('pointerup', () => { dialDrag = false; });
+  function azLabel(az) {
+    let a = ((az % 360) + 540) % 360 - 180; // -180..180, + = left
+    if (a === 0) return '正面'; if (Math.abs(a) === 180) return '真後ろ';
+    return (a > 0 ? '左 ' : '右 ') + Math.abs(a) + '°';
+  }
+  function syncDirInputs() {
+    let a = ((S.az % 360) + 540) % 360 - 180;
+    $('azR').value = -a; $('azOut').textContent = azLabel(S.az);
+    $('elR').value = S.el; $('elOut').textContent = (S.el > 0 ? '+' : '') + S.el + '°';
+  }
+  $('azR').addEventListener('input', (e) => { S.az = -(+e.target.value); syncDirInputs(); drawAllDir(); });
+  $('elR').addEventListener('input', (e) => { S.el = +e.target.value; syncDirInputs(); drawAllDir(); });
+  let dirRaf = 0;
+  function drawAllDir() { cancelAnimationFrame(dirRaf); dirRaf = requestAnimationFrame(() => { drawDirection(); drawHeat(); drawBench(); }); }
+
+  // ---------- audio ----------
+  let ac = null, live = [];
+  function pinkNoise(ctx, sec) {
+    const n = Math.round(ctx.sampleRate * sec), b = ctx.createBuffer(1, n, ctx.sampleRate), x = b.getChannelData(0);
+    let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+    for (let i = 0; i < n; i++) {
+      const w = Math.random() * 2 - 1;
+      b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759; b2 = 0.96900 * b2 + w * 0.1538520;
+      b3 = 0.86650 * b3 + w * 0.3104856; b4 = 0.55000 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.0168980;
+      x[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11; b6 = w * 0.115926;
+    }
+    return b;
+  }
+  function ensureAC() {
+    if (!ac) { try { ac = new AudioContext({ sampleRate: S.P.fs }); } catch (e) { ac = new AudioContext(); } }
+    if (ac.state === 'suspended') ac.resume();
+    return ac;
+  }
+  function stopAll() { live.forEach((n) => { try { n.stop(); } catch (e) {} }); live = []; timers.forEach(clearTimeout); timers = []; }
+  let timers = [];
+  function playSeq(dirs, burst = 0.22, gap = 0.16, reps = 1) {
+    const ctx = ensureAC(); stopAll();
+    if (ctx.sampleRate !== S.P.fs) { $('exportMsg').textContent = ''; }
+    const noise = pinkNoise(ctx, burst), out = ctx.createGain(); out.gain.value = 0.5; out.connect(ctx.destination);
+    let t = ctx.currentTime + 0.08; const df = getDF();
+    dirs.forEach(([az, el], idx) => {
+      const d = H.direction(S.P, S.tables, az, el);
+      const L = H.hrir(S.P, d.L, df.L), R = H.hrir(S.P, d.R, df.R);
+      const ir = ctx.createBuffer(2, L.length, S.P.fs); ir.copyToChannel(L, 0); ir.copyToChannel(R, 1);
+      const conv = ctx.createConvolver(); conv.normalize = false;
+      try { conv.buffer = ir; } catch (e) { return; }
+      conv.connect(out);
+      for (let r = 0; r < reps; r++) {
+        const src = ctx.createBufferSource(), env = ctx.createGain(); src.buffer = noise;
+        env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(1, t + 0.01);
+        env.gain.setValueAtTime(1, t + burst - 0.02); env.gain.linearRampToValueAtTime(0, t + burst);
+        src.connect(env).connect(conv); src.start(t); src.stop(t + burst + 0.01); live.push(src);
+        const when = (t - ctx.currentTime) * 1000;
+        timers.push(setTimeout(() => { if (dirs.length > 1) { S.az = az; S.el = el; syncDirInputs(); drawAllDir(); } }, when));
+        t += burst + gap;
+      }
+    });
+  }
+  $('playOne').addEventListener('click', () => playSeq([[S.az, S.el]], 0.22, 0.14, 3));
+  $('playRing').addEventListener('click', () => { const d = []; for (let a = 0; a <= 360; a += 30) d.push([-(a > 180 ? a - 360 : a), S.el]); playSeq(d, 0.2, 0.12); });
+  $('playMed').addEventListener('click', () => { const d = []; for (let b = -30; b <= 210; b += 30) d.push(medianDir(b)); playSeq(d, 0.2, 0.14); });
+  $('stop').addEventListener('click', stopAll);
+
+  // ---------- export ----------
+  let downloads = null;
+  (async () => { try { downloads = window.claude && window.claude.use ? await window.claude.use('downloads') : null; } catch (e) { downloads = null; } })();
+  async function save(filename, data, msgId = 'exportMsg') {
+    const msg = $(msgId);
+    if (!downloads && window.claude && window.claude.use) { try { downloads = await window.claude.use('downloads'); } catch (e) {} }
+    if (!downloads) {                           // on its own site: an ordinary download
+      try {
+        const blob = data instanceof Blob ? data : new Blob([data], { type: /\.json$/.test(filename) ? 'application/json' : /\.txt$/.test(filename) ? 'text/plain' : 'application/octet-stream' });
+        const u = URL.createObjectURL(blob), a = document.createElement('a'); a.href = u; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(u), 60000); msg.textContent = `${filename} を保存しました。`;
+      } catch (e) { msg.textContent = '保存できませんでした。'; }
+      return;
+    }
+    try { await downloads.save({ filename, data }); msg.textContent = `${filename} を保存しました。`; }
+    catch (e) {
+      const c = e && e.code;
+      msg.textContent = c === 'declined' ? '保存を取り消しました。' : c === 'rate_limited' ? '保存の確認がすでに開いています。少し待ってからもう一度押してください。' : `保存できませんでした（${c || 'unknown'}）。`;
+    }
+  }
+  const stamp = () => { const d = new Date(), p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`; };
+  function geomExport(ear = S.ear) {
+    const prev = S.ear; S.ear = ear; const g = geom(); const fr = E().front, tl = E().tilt; S.ear = prev;
+    if (!g) return null;
+    const rel = (p) => { // mm, x = toward front, y = up (before tilt correction)
+      const dx = (p.x - g.canal.x) / g.pxPerMm, dy = (p.y - g.canal.y) / g.pxPerMm;
+      return [+(dx * g.front).toFixed(2), +(-dy).toFixed(2)];
+    };
+    return { units: 'mm, origin = ear canal, x = front, y = up', tilt_deg: tl, helix: g.contours[0].map(rel), antihelix: g.contours[1].map(rel), concha: g.contours[2].map(rel) };
+  }
+  $('exportZip').addEventListener('click', async () => {
+    const btn = $('exportZip'), msg = $('exportMsg'); btn.disabled = true;
+    try {
+      const pos = H.exportGrid(), irs = [];
+      for (let i = 0; i < pos.length; i++) {
+        const d = H.direction(S.P, S.tables, pos[i][0], pos[i][1]);
+        irs.push([H.hrir(S.P, d.L), H.hrir(S.P, d.R)]);
+        if (i % 60 === 0) { msg.textContent = `計算中 ${i}/${pos.length} 方向`; await new Promise(r => setTimeout(r, 0)); }
+      }
+      msg.textContent = 'ファイルをまとめています…'; await new Promise(r => setTimeout(r, 0));
+      const eqFiles = [['apo/graphiceq_speakers_30deg.txt', 'spk'], ['apo/graphiceq_front_0deg.txt', 'front']].map(([name, v]) => ({ name, data: eqText(v) }));
+      const hs = await hesuviFiles('hesuvi/');
+      const meta = { fs: S.P.fs, taps: S.P.N, count: pos.length, radius_m: 1.2, head_radius_m: +H.headRadius(S.P.headW, S.P.headH, S.P.headD).toFixed(4), created: new Date().toISOString(), listener: S.ears.R.demo ? 'demo-ear' : 'ear-hrtf', params: { ...S.P }, pinna: { right: geomExport('R'), left: geomExport('L') } };
+      const files = [{ name: 'README.txt', data: IO.README(meta) }, { name: 'to_sofa.py', data: IO.PY }, { name: 'hrir_set.json', data: IO.setJSON(meta, pos, irs) }];
+      pos.forEach(([az, el], i) => files.push({ name: IO.wavName(az, el), data: IO.wav(irs[i][0], irs[i][1], S.P.fs) }));
+      files.push(...eqFiles, ...hs);
+      const blob = IO.makeZip(files);
+      msg.textContent = `準備できました（${(blob.size / 1e6).toFixed(1)} MB）。保存を確認してください。`;
+      await save(`ear-hrtf-${stamp()}.zip`, blob);
+    } finally { btn.disabled = false; }
+  });
+  const measurementsData = () => ({ format: 'ear-hrtf-measurements/1', created: new Date().toISOString(), head_mm: { width: S.P.headW, height: S.P.headH, depth: S.P.headD }, head_radius_m: H.headRadius(S.P.headW, S.P.headH, S.P.headD), model: { ...S.P }, pinna: { right: geomExport('R'), left: geomExport('L') }, trace: { right: traceExport('R'), left: traceExport('L') } });
+  $('exportGeom').addEventListener('click', () => save(`ear-measurements-${stamp()}.json`, JSON.stringify(measurementsData(), null, 2)));
+
+  // ---------- Equalizer APO ----------
+  const EQF = IO.eqFreqs();
+  const EQV = { spk: { L: 30, R: -30, title: 'Speakers at +/-30 deg (ipsilateral ear), diffuse-field equalized' }, front: { L: 0, R: 0, title: 'Frontal source 0 deg, diffuse-field equalized' } };
+  function eqCurves(v) {
+    const o = {};
+    for (const ear of ['L', 'R']) {
+      const df = H.diffuseField(S.P, S.tables[ear], ear, EQF);
+      o[ear] = H.eqCurve(S.P, S.tables[ear], ear, EQV[v][ear], 0, EQF, df);
+    }
+    return o;
+  }
+  const eqText = (v) => IO.apoGraphicEQ(EQF, eqCurves(v), EQV[v].title);
+  function drawEq() {
+    const cv = $('eqChart'); if (!cv.clientWidth) return;
+    const { c, w, h } = prepCanvas(cv), cur = eqCurves(S.eqVariant);
+    const m = { l: 36, r: 10, t: 8, b: 24 }, pw = w - m.l - m.r, ph = h - m.t - m.b;
+    const F0 = 20, F1 = 20000, D0 = -18, D1 = 9;
+    const X = (f) => m.l + Math.log(f / F0) / Math.log(F1 / F0) * pw, Y = (db) => m.t + (D1 - db) / (D1 - D0) * ph;
+    const mu = css('--muted');
+    c.strokeStyle = css('--line'); c.lineWidth = 1; c.font = `11px ${css('--f-mono')}`; c.fillStyle = mu;
+    (pw > 480 ? [20, 100, 1000, 10000, 20000] : [20, 100, 1000, 10000]).forEach((f) => { c.beginPath(); c.moveTo(X(f), m.t); c.lineTo(X(f), m.t + ph); c.stroke(); c.textAlign = f === 20000 ? 'right' : f === 20 ? 'left' : 'center'; c.textBaseline = 'top'; c.fillText(f >= 1000 ? (f / 1000) + 'k' : f, X(f), m.t + ph + 6); });
+    [-18, -9, 0, 9].forEach((db) => { c.beginPath(); c.moveTo(m.l, Y(db)); c.lineTo(m.l + pw, Y(db)); c.stroke(); c.textAlign = 'right'; c.textBaseline = 'middle'; c.fillText(db, m.l - 6, Y(db)); });
+    [['L', css('--left')], ['R', css('--right')]].forEach(([k, col]) => {
+      c.strokeStyle = col; c.lineWidth = 2; c.setLineDash(k === 'R' ? [6, 4] : []); c.beginPath();
+      cur[k].forEach((v, i) => { const y = Y(Math.max(D0, Math.min(D1, v))); i ? c.lineTo(X(EQF[i]), y) : c.moveTo(X(EQF[i]), y); }); c.stroke(); c.setLineDash([]);
+    });
+    const mx = Math.max(...cur.L, ...cur.R);
+    $('eqPre').textContent = `プリアンプ ${(-Math.ceil((Math.max(0, mx) + 0.5) * 10) / 10).toFixed(1)} dB`;
+  }
+  $('eqSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; S.eqVariant = b.dataset.v; document.querySelectorAll('#eqSeg button').forEach((x) => x.setAttribute('aria-pressed', x === b)); drawEq(); });
+  $('saveEq').addEventListener('click', () => save(`ear-hrtf-graphiceq-${S.eqVariant === 'spk' ? 'speakers' : 'front'}-${stamp()}.txt`, eqText(S.eqVariant), 'eqMsg'));
+  $('copyEq').addEventListener('click', () => {
+    const t = eqText(S.eqVariant);
+    navigator.clipboard.writeText(t).then(
+      () => { $('eqMsg').textContent = '設定をコピーしました。config.txt に貼り付けて使えます。'; },
+      () => { $('eqMsg').textContent = 'コピーできませんでした。「GraphicEQ を保存」を使ってください。'; });
+  });
+  async function hesuviFiles(prefix, base = S.P) {
+    const out = [];
+    for (const [fs, path] of [[48000, 'hrir/ear-hrtf.wav'], [44100, 'hrir/44/ear-hrtf.wav']]) {
+      const P = fs === base.fs ? base : Object.assign({}, base, { fs }), df = getDF(P);
+      const chans = H.HESUVI_ORDER.map((key) => {
+        const [sp, ear] = key.split('-'), d = H.direction(P, S.tables, H.SPEAKERS[sp], 0);
+        return H.hrir(P, d[ear], df[ear]);
+      });
+      out.push({ name: prefix + path, data: IO.wavMulti(chans, fs) });
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    out.push({ name: prefix + 'README-HeSuVi.txt', data: IO.HESUVI_README });
+    return out;
+  }
+  $('saveHesuvi').addEventListener('click', async () => {
+    const b = $('saveHesuvi'); b.disabled = true; $('eqMsg').textContent = '計算中…';
+    try { const files = await hesuviFiles(''); $('eqMsg').textContent = '保存を確認してください。'; await save(`ear-hrtf-hesuvi-${stamp()}.zip`, IO.makeZip(files), 'eqMsg'); }
+    finally { b.disabled = false; }
+  });
+
+  // ---------- batch: photo / measurements in, Q8 + Q16 x speakers + front out ----------
+  const BATCHQ = [8, 16];
+  let batchBusy = false;
+  const earTraced = (k) => { const e = S.ears[k]; return !!(e.table && !e.demo && e.contours.some((c) => c.length >= 2)); };
+  const batchQs = () => BATCHQ.filter((q) => $('bq' + q).checked);
+  function earLine(k) {
+    const e = S.ears[k], o = S.ears[OTHER[k]];
+    if (earTraced(k)) {
+      const n = e.contours.map((c) => c.length).join(' / ');
+      return `${e.img && !e.placeholder ? e.name : '計測値のみ'}・輪郭 ${n} 点・実寸 ${e.scaleMm} mm・傾き ${e.tilt > 0 ? '+' : ''}${e.tilt}°・顔は画像の${e.front > 0 ? '右' : '左'}側`;
+    }
+    if (e.demo) return '見本の耳';
+    return earTraced(OTHER[k]) ? `${EARNAME[OTHER[k]]}を左右反転して使います` : '未計測';
+  }
+  function syncBatch() {
+    $('bsR').textContent = earLine('R'); $('bsL').textContent = earLine('L');
+    const ready = earTraced('R') || earTraced('L'), qs = batchQs(), s = $('bsS');
+    s.className = ready ? 'ok' : '';
+    s.textContent = !ready ? '写真を取り込んで輪郭をなぞるか、計測値(.json)を取り込んでください。' : !qs.length ? 'Qを1つ以上選んでください。' : '書き出せます。';
+    const n = qs.length * 2 + (($('bhs').checked) ? qs.length : 0);
+    $('batchSave').textContent = qs.length ? `${qs.map((q) => 'Q' + q).join('・')} × スピーカー・正面 を保存 (.zip)` : '保存 (.zip)';
+    $('batchSave').disabled = batchBusy || !ready || !qs.length;
+    $('batchSave').title = n ? `EQ ${qs.length * 2} ファイル` + ($('bhs').checked ? ` + HeSuVi ${qs.length} 個` : '') : '';
+  }
+  ['bq8', 'bq16', 'bhs'].forEach((id) => $(id).addEventListener('change', syncBatch));
+
+  const isJsonFile = (f) => /\.json$/i.test(f.name) || f.type === 'application/json';
+  const isImageFile = (f) => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(f.name);
+  async function ingest(files) {
+    const msg = $('batchMsg'), img = files.find(isImageFile), js = files.find(isJsonFile);
+    if (!img && !js) { msg.textContent = '写真（JPEG・PNG）か計測値（.json）を選んでください。'; return; }
+    let d = null;
+    if (js) { try { d = JSON.parse(await js.text()); } catch (e) { msg.textContent = '計測値の .json を読めませんでした。このツールで保存したファイルを選んでください。'; return; } }
+    const tr = (d && d.trace) || {}, has = { R: !!(tr.right && tr.right.canal), L: !!(tr.left && tr.left.canal) };
+    if (js && !has.R && !has.L) { msg.textContent = 'この .json には輪郭のデータがありません。「計測値を保存」で作ったファイルを選んでください。'; return; }
+    let note = '', target = S.ear;
+    if (img) {
+      target = has.R && !has.L ? 'R' : has.L && !has.R ? 'L' : (has[S.ear] ? S.ear : has.R ? 'R' : S.ear);
+      S.ear = target;
+      const t = d && (target === 'R' ? tr.right : tr.left);
+      if (t && t.image) E().norm = t;
+      msg.textContent = '写真を読み込み中…';
+      if (!(await loadPhoto(img))) { msg.textContent = '写真を読み込めませんでした。JPEGかPNGを選んでください。'; return; }
+    }
+    if (d) {
+      const e = S.ears[target], t = target === 'R' ? tr.right : tr.left;
+      const mismatch = img && t && t.image && !(Math.abs(e.img.width / e.img.height - t.image.w / t.image.h) < 0.02);
+      applyGeomData(d, mismatch ? [target] : []);
+      if (mismatch) note = '写真の縦横比が計測値と合わないため、輪郭は重ねていません。この写真をなぞり直してください。';
+    }
+    syncBatch();
+    const ready = earTraced('R') || earTraced('L');
+    if (ready && !note) {
+      msg.textContent = '取り込みました。';
+      if ($('bauto').checked && batchQs().length) await batchExport();
+    } else if (ready) msg.textContent = note;
+    else if (img && !note && sampleFn && $('bai').checked) {
+      msg.textContent = 'AIが写真から輪郭を読み取っています（30秒〜2分）…';
+      if (await aiTrace()) {
+        syncBatch();
+        msg.textContent = 'AIが輪郭を置きました。左の写真で位置と「実寸」を確認してください。';
+        if ($('bauto').checked && batchQs().length) await batchExport();
+      } else msg.textContent = $('hint').textContent;
+    }
+    else {
+      msg.textContent = '写真を読み込みました。左の写真で スケール→外耳道→耳輪→対耳輪→耳甲介 の順になぞると、保存できるようになります。' + (note ? ' ' + note : '');
+      try { $('benchWrap').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {}
+    }
+  }
+  $('batchIn').addEventListener('change', async (e) => {
+    const inp = e.target, fs = [...(inp.files || [])]; if (!fs.length) return;
+    $('batchMsg').textContent = '読み込み中…';
+    try { await ingest(fs); } catch (err) { $('batchMsg').textContent = '読み込みに失敗しました：' + (err && err.message || err); }
+    finally { try { inp.value = ''; } catch (x) {} }
+  });
+  const bc = $('batchCard');
+  ['dragenter', 'dragover'].forEach((t) => bc.addEventListener(t, (e) => { e.preventDefault(); bc.classList.add('drop'); }));
+  ['dragleave', 'drop'].forEach((t) => bc.addEventListener(t, (e) => { e.preventDefault(); bc.classList.remove('drop'); }));
+  bc.addEventListener('drop', (e) => { const fs = [...((e.dataTransfer && e.dataTransfer.files) || [])]; if (fs.length) ingest(fs); });
+
+  // ---------- AI auto trace (asks Claude through the sample capability) ----------
+  let sampleFn = null, aiCtl = null, aiWhy = 'AIの利用を確認しています…';
+  (async () => {
+    try {
+      const s = window.claude && window.claude.use ? await window.claude.use('sample') : null;
+      if (!s) { aiWhy = STANDALONE ? 'AIの自動配置は、claude.ai で開いたときだけ使えます。ここでは手でなぞってください（2〜3分）。' : 'この画面ではAIを使えません（Claudeアプリかclaude.aiで、ログインして開いてください）。手でなぞってください。'; return; }
+      const lim = await s.limits().catch(() => null);
+      if (!lim || !lim.images) { aiWhy = 'この画面は、AIへの写真の送信に対応していません。手でなぞってください。'; return; }
+      sampleFn = s;
+    } catch (e) { aiWhy = 'AIの確認に失敗しました。手でなぞってください。'; }
+    finally { syncAI(); const n = document.getElementById('qAiNote'); if (n) n.textContent = sampleFn ? 'AIが輪郭を自動で置きます。' : (STANDALONE ? 'ここでは AI が使えないので、写真を入れたら左の写真で輪郭をなぞってください（AIの自動配置は claude.ai 版だけ）。' : ''); }
+  })();
+  function syncAI() {
+    const ok = !!sampleFn, e = E(), usable = ok && e.img && !e.demo && !e.placeholder;
+    $('aiTrace').disabled = !usable || !!aiCtl;
+    $('bai').disabled = !ok;
+    $('aiStop').hidden = !aiCtl;
+    $('aiNote').textContent = !ok ? aiWhy : usable ? '写真をClaudeに送り、外耳道と3本の輪郭を置きます（30秒〜2分）。' : '先に耳の写真を選んでください。';
+  }
+  const toJpeg = (c) => new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9));
+  function cropCanvas(e, x, y, w, h, maxD, grid) {
+    const k = Math.min(1, maxD / Math.max(w, h)), c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+    const g = c.getContext('2d'); g.drawImage(e.img, x, y, w, h, 0, 0, c.width, c.height);
+    if (grid) {
+      g.lineWidth = 1; g.font = `${Math.max(11, Math.round(c.width / 55))}px sans-serif`;
+      for (let i = 1; i < 10; i++) {
+        const X = c.width * i / 10, Y = c.height * i / 10;
+        g.strokeStyle = 'rgba(0,230,255,.4)'; g.beginPath(); g.moveTo(X, 0); g.lineTo(X, c.height); g.moveTo(0, Y); g.lineTo(c.width, Y); g.stroke();
+        g.fillStyle = 'rgba(255,240,0,.95)'; g.fillText(String(i * 100), X + 2, 13); g.fillText(String(i * 100), 2, Y - 3);
+      }
+    }
+    return c;
+  }
+  const AI_FIND = 'This photo shows a person\'s head from the side. Locate the visible external ear (pinna). Coordinates are normalized 0-1000: x from the left edge to the right edge of the image, y from the top edge to the bottom edge. Reply with only JSON: {"found": true, "box": [x0, y0, x1, y1]} where the box tightly contains the whole pinna including the earlobe. If no ear is visible, reply {"found": false}.';
+  const AI_TRACE = [
+    'This is a close-up photo of a human outer ear (pinna), taken from the side. A faint cyan grid is drawn every 100 units, labelled along the top and left edges. Coordinates are normalized 0-1000 over THIS image: x from the left edge to the right edge, y from the top edge to the bottom edge.',
+    'Mark these landmarks for an acoustic model of the ear:',
+    '- "canal": the centre of the ear-canal opening (the dark hole just behind the tragus).',
+    '- "top": the highest point of the outer rim. "bottom": the lowest point of the earlobe.',
+    '- "helix": 14-20 points along the INNER edge of the outer rim (helix), in order: start at the helix root just above the ear canal (on the face side), go up over the top of the ear, then down the back of the ear, and end where the rim runs into the earlobe.',
+    '- "antihelix": 7-10 points along the curved ridge inside the helix (antihelix), on the edge of that ridge that faces the ear canal, from top to bottom.',
+    '- "concha": 6-9 points along the rim of the bowl around the ear-canal opening (concha), on its wall that is farther from the face, from top to bottom.',
+    'Place the points on the actual edges you see; do not invent a generic ear shape.',
+    'Reply with only JSON in this shape: {"canal":[x,y],"top":[x,y],"bottom":[x,y],"helix":[[x,y],...],"antihelix":[[x,y],...],"concha":[[x,y],...]}',
+  ].join('\n');
+  const okPt = (p) => Array.isArray(p) && p.length >= 2 && p.slice(0, 2).every((v) => isFinite(+v) && +v > -60 && +v < 1060);
+  const okLine = (a, n) => Array.isArray(a) && a.filter(okPt).length >= n;
+  function aiError(err) {
+    const c = err && err.code;
+    if (['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed', 'images_unavailable'].includes(c)) {
+      sampleFn = null;
+      aiWhy = c === 'not_granted' ? 'AIの使用が許可されませんでした。ページを開き直すと、もう一度確認が出ます。' : 'この画面ではAIを使えません。手でなぞってください。';
+      syncAI();
+      return aiWhy;
+    }
+    return c === 'cancelled' ? 'AIの読み取りを止めました。'
+      : c === 'rate_limited' ? 'AIの利用が混み合っているか上限に達しました。少し時間をおいてからもう一度押してください。'
+      : c === 'session_expired' ? 'ログインが切れました。ページを開き直してください。'
+      : c === 'image_rejected' ? 'この写真はAIに送れませんでした。JPEGかPNGの写真を選んでください。'
+      : c === 'invalid_json' || c === 'empty_completion' ? 'AIの答えを読み取れませんでした。もう一度押すか、手でなぞってください。'
+      : 'AIに接続できませんでした。もう一度押すか、手でなぞってください。';
+  }
+  async function aiTrace() {
+    const e = E();
+    if (!sampleFn || !e.img || e.demo || e.placeholder || aiCtl) return false;
+    const W = e.img.naturalWidth || e.img.width, Hh = e.img.naturalHeight || e.img.height;
+    const ctl = aiCtl = new AbortController(); syncAI();
+    const say = (t) => { $('hint').textContent = t; };
+    try {
+      say('AIが写真の中の耳を探しています（1/2）… 初回は、AIの使用を許可するか聞かれます。');
+      const r1 = await sampleFn.json(AI_FIND, { images: await toJpeg(cropCanvas(e, 0, 0, W, Hh, 1400, false)), signal: ctl.signal, cache: false });
+      const b = r1 && r1.found !== false && Array.isArray(r1.box) ? r1.box.map(Number) : null;
+      if (!b || b.length < 4 || !b.every(isFinite) || b[2] - b[0] < 15 || b[3] - b[1] < 15) { say('写真の中に耳が見つかりませんでした。耳が大きく写った真横の写真を選ぶか、手でなぞってください。'); return false; }
+      const bx0 = b[0] / 1000 * W, by0 = b[1] / 1000 * Hh, bx1 = b[2] / 1000 * W, by1 = b[3] / 1000 * Hh, mx = (bx1 - bx0) * 0.22, my = (by1 - by0) * 0.22;
+      const crop = { x: Math.max(0, bx0 - mx), y: Math.max(0, by0 - my) };
+      crop.w = Math.min(W, bx1 + mx) - crop.x; crop.h = Math.min(Hh, by1 + my) - crop.y;
+      say('AIが輪郭を読み取っています（2/2）…');
+      const r = await sampleFn.json(AI_TRACE, { images: await toJpeg(cropCanvas(e, crop.x, crop.y, crop.w, crop.h, 1000, true)), signal: ctl.signal, cache: false });
+      if (!r || !okPt(r.canal) || !okPt(r.top) || !okPt(r.bottom) || !okLine(r.helix, 5) || !okLine(r.antihelix, 3) || !okLine(r.concha, 3)) {
+        say('AIの答えに足りない点がありました。もう一度押すか、手でなぞってください。'); return false;
+      }
+      if (S.ears[S.ear] !== e) return false; // the ear was switched meanwhile
+      const P = (p) => ({ x: crop.x + (+p[0]) / 1000 * crop.w, y: crop.y + (+p[1]) / 1000 * crop.h });
+      e.canal = P(r.canal); e.scale = [P(r.top), P(r.bottom)];
+      e.contours = [r.helix, r.antihelix, r.concha].map((a) => a.filter(okPt).map(P));
+      e.frontAuto = true; e.norm = null;
+      ZOOM = 1; setZoom(1); syncEarUI(); setMode('c1'); layoutBench(); recompute();
+      $('hint').innerHTML = `AIが輪郭を置きました。ずれている点はドラッグで直せます。<em>スケールは耳の上端〜耳たぶの下端です。下の「実寸」（いま ${e.scaleMm} mm）を自分の耳の長さに合わせてください。</em>`;
+      return true;
+    } catch (err) { say(aiError(err)); return false; }
+    finally { if (aiCtl === ctl) aiCtl = null; syncAI(); }
+  }
+  $('aiTrace').addEventListener('click', () => { aiTrace(); });
+  $('aiStop').addEventListener('click', () => { if (aiCtl) aiCtl.abort(); });
+
+  async function batchExport() {
+    const msg = $('batchMsg'), qs = batchQs();
+    if (!qs.length || batchBusy) return;
+    batchBusy = true; syncBatch();
+    try {
+      readParams();
+      const files = [], tick = () => new Promise((r) => setTimeout(r, 0));
+      for (const q of qs) {
+        msg.textContent = `計算中 Q${q}…`; await tick();
+        const P = Object.assign({}, S.P, { notchQ: q });
+        const df = { L: H.diffuseField(P, S.tables.L, 'L', EQF), R: H.diffuseField(P, S.tables.R, 'R', EQF) };
+        for (const [v, nm] of [['spk', 'speakers'], ['front', 'front']]) {
+          const c = {};
+          for (const ear of ['L', 'R']) c[ear] = H.eqCurve(P, S.tables[ear], ear, EQV[v][ear], 0, EQF, df[ear]);
+          files.push({ name: `my-hrtf-Q${q}-${nm}.txt`, data: IO.apoGraphicEQ(EQF, c, `${EQV[v].title}, notch Q=${q}`) });
+        }
+        if ($('bhs').checked) { msg.textContent = `HeSuVi 用を計算中 Q${q}…`; await tick(); files.push(...(await hesuviFiles(`hesuvi-Q${q}/`, P))); }
+      }
+      const e = (k) => S.ears[k], L = (k) => earLine(k);
+      files.unshift({ name: 'README.txt', data: [
+        '耳形HRTFラボ 一括出力', `作成: ${new Date().toISOString()}`, '',
+        `ノッチのQ: ${qs.join(', ')}`, '種類: speakers = スピーカー ±30°（左耳 +30° / 右耳 −30°）、front = 正面 0°（拡散音場補正済み）', '',
+        `右耳: ${L('R')}`, `左耳: ${L('L')}`,
+        `頭部寸法: 幅 ${S.P.headW} / 高さ ${S.P.headH} / 奥行き ${S.P.headD} mm（有効球半径 ${(H.headRadius(S.P.headW, S.P.headH, S.P.headD) * 1000).toFixed(1)} mm）`,
+        `ノッチの深さ(耳輪/対耳輪/耳甲介): ${S.P.depth.join(' / ')} dB`, '',
+        '使い方（Equalizer APO）',
+        '  .txt を C:\\Program Files\\EqualizerAPO\\config に置き、config.txt の最後に',
+        '  Include: my-hrtf-Q8-speakers.txt のように1行足します（同時に複数は有効にしないでください）。',
+        '  HeSuVi 用は hesuvi-Qxx\\hrir の中身を ...\\config\\HeSuVi\\hrir にコピーします。', '',
+        '耳の実寸（スケール2点間）の仮定が、ノッチの周波数をそのまま左右します。',
+      ].join('\r\n') });
+      files.push({ name: 'my-ear-measurements.json', data: JSON.stringify(measurementsData(), null, 2) });
+      const blob = IO.makeZip(files);
+      msg.textContent = `${files.filter((f) => /^my-hrtf-.*\.txt$/.test(f.name)).length} 個のEQを入れました（${(blob.size / 1e3).toFixed(0)} KB）。保存を確認してください。`;
+      await save(`ear-hrtf-eq-${stamp()}.zip`, blob, 'batchMsg');
+    } catch (err) { msg.textContent = '書き出しに失敗しました：' + (err && err.message || err); }
+    finally { batchBusy = false; syncBatch(); }
+  }
+  $('batchSave').addEventListener('click', batchExport);
+
+  // ---------- quick: paste a photo -> AI trace -> HRTF -> link that opens ExoSpace with it ----------
+  const LSQ = 'ear-hrtf-quick';
+  if (STANDALONE) { $('qApp').value = new URL('./', location.href).href; }
+  const qGet = () => { try { return JSON.parse(localStorage.getItem(LSQ) || '{}') || {}; } catch (e) { return {}; } };
+  const qSet = (o) => { try { localStorage.setItem(LSQ, JSON.stringify(Object.assign(qGet(), o))); } catch (e) { /* per-viewer convenience only */ } };
+  { const q = qGet(); if (isFinite(+q.earMm) && +q.earMm >= 40) $('qEarMm').value = +q.earMm; if (q.app && !STANDALONE) $('qApp').value = q.app; if (q.q) $('qQ').value = String(q.q); }
+  let qBusy = false, qText = '', qName = '';
+  const qMsg = (t) => { $('qMsg').textContent = t; };
+  function qEarMm() { const v = +$('qEarMm').value; return isFinite(v) && v >= 40 && v <= 90 ? v : 65; }
+  function qCurveText() {                       // the Q-chosen speakers +/-30 deg curve, the same file the batch writes
+    readParams();
+    const q = +$('qQ').value || 16, P = Object.assign({}, S.P, { notchQ: q }), c = {};
+    for (const ear of ['L', 'R']) c[ear] = H.eqCurve(P, S.tables[ear], ear, EQV.spk[ear], 0, EQF, H.diffuseField(P, S.tables[ear], ear, EQF));
+    return { text: IO.apoGraphicEQ(EQF, c, `${EQV.spk.title}, notch Q=${q}`), name: `my-hrtf-Q${q}-speakers` };
+  }
+  async function qLink() {
+    const t = qCurveText(); qText = t.text; qName = t.name;
+    const u8 = new TextEncoder().encode(qText); let bytes = u8, z = 0;
+    try { if (window.CompressionStream) { bytes = new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer()); z = 1; } } catch (e) { bytes = u8; z = 0; }
+    let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    const b64 = btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const app = ($('qApp').value || '').trim() || 'https://menya-oasis.github.io/exospace-audio/';
+    const a = $('qSend'); a.href = app.replace(/#.*$/, '') + '#hrtf=' + b64 + '&n=' + encodeURIComponent(qName) + '&z=' + z; a.hidden = false; $('qCopy').hidden = false;
+    return a.href.length;
+  }
+  async function quick(f) {
+    if (qBusy) return; qBusy = true; $('qSend').hidden = true; $('qCopy').hidden = true;
+    try {
+      qMsg('写真を読み込み中…');
+      if (!(await loadPhoto(f))) { qMsg('写真を読み込めませんでした。JPEGかPNGを選んでください。'); return; }
+      if (!sampleFn) { qMsg(aiWhy + ' 左の写真で スケール→外耳道→耳輪→対耳輪→耳甲介 の順になぞると、ここに「ExoSpace で使う」が出ます。'); quickWaitManual = true; return; }
+      qMsg('AIが写真から耳を探して輪郭を置いています（30秒〜2分）…');
+      if (!(await aiTrace())) { qMsg($('hint').textContent); quickWaitManual = true; return; }
+      E().scaleMm = qEarMm(); syncEarUI(); recompute();
+      const n = await qLink();
+      qMsg(`できました（耳の長さ ${qEarMm()} mm として計算・リンク ${(n / 1024).toFixed(1)} KB）。左の写真で点がずれていたらドラッグで直せます（直すとリンクも作り直します）。`);
+    } catch (err) { qMsg('うまくいきませんでした：' + (err && err.message || err)); }
+    finally { qBusy = false; }
+  }
+  let quickWaitManual = false, qRe = 0;
+  // after a manual trace or a fix, keep the link up to date
+  const qRefresh = () => { clearTimeout(qRe); qRe = setTimeout(async () => { if (qBusy || !(earTraced('R') || earTraced('L'))) return; if ($('qSend').hidden && !quickWaitManual) return; quickWaitManual = false; await qLink(); if (!$('qMsg').textContent || /なぞると/.test($('qMsg').textContent)) qMsg('リンクを作りました。'); }, 400); };
+  const _recompute = recompute; recompute = function () { _recompute(); qRefresh(); };
+  $('qPhoto').addEventListener('change', async (e) => { const inp = e.target, f = inp.files && inp.files[0]; if (f) await quick(f); try { inp.value = ''; } catch (x) {} });
+  $('qEarMm').addEventListener('input', () => { const v = qEarMm(); qSet({ earMm: v }); if (earTraced(S.ear)) { E().scaleMm = v; syncEarUI(); scheduleRecompute(); } });
+  $('qQ').addEventListener('change', () => { qSet({ q: +$('qQ').value }); qRefresh(); });
+  $('qApp').addEventListener('change', () => { qSet({ app: $('qApp').value.trim() }); qRefresh(); });
+  $('qCopy').addEventListener('click', () => {
+    navigator.clipboard.writeText(qText).then(() => qMsg('HRTF の文字をコピーしました。ExoSpace の HRTF 欄に貼り付けても使えます。'), () => qMsg('コピーできませんでした。'));
+  });
+  document.addEventListener('paste', (e) => {
+    const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    const it = [...((e.clipboardData && e.clipboardData.items) || [])].find((x) => x.kind === 'file' && /^image\//.test(x.type));
+    const f = it && it.getAsFile(); if (!f) return;
+    e.preventDefault(); try { $('quickCard').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (x) {}
+    quick(new File([f], f.name || 'pasted.png', { type: f.type }));
+  });
+
+  // ---------- theme / resize ----------
+  const redrawAll = () => { layoutBench(); drawHeat(); drawDirection(); drawEq(); };
+  try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redrawAll); } catch (e) {}
+  new MutationObserver(redrawAll).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  let rz = 0; new ResizeObserver(() => { clearTimeout(rz); rz = setTimeout(redrawAll, 60); }).observe(document.querySelector('.layout'));
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(redrawAll);
+
+  syncDirInputs(); syncEarUI(); loadDemo();
+})();
+</script>
+<script>if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));}</script>
+</body></html>
