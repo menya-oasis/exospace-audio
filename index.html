@@ -410,6 +410,20 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
         <button class="btn" id="pcPick">PC版の設定ファイルを選ぶ</button>
         <input type="file" id="pcFile" accept=".json,application/json" hidden>
         <div class="msg" id="pcMsg" hidden></div>
+        <div class="sub2">スマホ全体に掛ける (Android・JamesDSP 用)</div>
+        <div class="hint">スマホのブラウザは、ほかのアプリやタブの音を取り込めません (Android の Chrome も iPhone も、取り込みの機能がありません)。
+          代わりに、いまの ROOM / Pro22 の設定 (PC方式のEQ・部屋・HRTF・クロスフィードまで) を「インパルス応答」のファイルに書き出せます。
+          Android の <b>RootlessJamesDSP</b> (root 不要・無料) の「コンボルバー」に読み込むと、YouTube アプリなど、スマホで鳴る音の多くに同じ処理が掛かります。
+          EX (倍音) だけは入りません。iPhone は、ほかのアプリの音を処理する仕組み自体がないため使えません。</div>
+        <div class="ctl"><label for="irDelay">遅れ</label><span></span><select id="irDelay">
+          <option value="min">遅れなし (おすすめ・動画とずれない)</option>
+          <option value="lin">PC版と同じ位相 (約 0.45 秒遅れる)</option></select></div>
+        <div class="ctl"><label for="irFs">周波数</label><span></span><select id="irFs">
+          <option value="48000">48 kHz (多くの Android)</option>
+          <option value="44100">44.1 kHz</option></select></div>
+        <button class="btn" id="irBtn">インパルス応答を書き出す (.wav)</button>
+        <div class="msg" id="irMsg" role="status" hidden></div>
+        <a class="btn" id="irSave" hidden>ファイルを保存</a>
         <div class="sub2">いまの状態を書き出す</div>
         <div class="hint">音の違いを調べる時に使います。空間モード・EQ・部屋・処理の周波数など、いま実際に動いている状態を文字で出します。そのまま貼り付けて送れます。</div>
         <button class="btn" id="diagBtn">いまの状態を書き出す</button>
@@ -5090,8 +5104,61 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
   const MODE_CLASSES = { room: RoomAlt, pro22: Pro22Alt, cfonly: CfOnly, pro10v3: Pro10V3, pro12v2: Pro12V2, pro13: Pro13, pro14v2: Pro14V2, pro15: Pro15, pro16: Pro16, pro17: Pro17, air8: Air8, pro21: Pro21 };
   function stepTo(cur, tgt, step) { return cur < tgt ? Math.min(tgt, cur + step) : Math.max(tgt, cur - step); }
 
+  // ---- the current ROOM / Pro22 chain as an impulse response file, for a phone-wide convolver (JamesDSP) --------------
+  // Everything in the chain except the exciter is linear and time-invariant for ROOM / Pro22 (EQ FIR, crossfeed, room
+  // convolution, EQ / HRTF stage), so one impulse into the left input and one into the right give the whole chain as
+  // four responses: L->L, L->R, R->L, R->R (JamesDSP's "full stereo" order). The impulse is small (-60 dBFS) so the
+  // exciter's harmonics stay far below the result; its linear part is in it, its harmonics are not (they need the app).
+  // o = { fs, S, mode, notch, prm, geo, cal, spec, fir: { cfg, text } | null, minPhase }
+  function irMinPhase(h) {                       // same magnitude, minimum phase, same length: no 0.49 s wait
+    let nfft = 1; while (nfft < 4 * h.length) nfft <<= 1;
+    const H = rmRfft(h, nfft), db = new Float64Array(nfft / 2 + 1);
+    for (let k = 0; k <= nfft / 2; k++) db[k] = 10 * Math.log10(Math.max(H.re[k] * H.re[k] + H.im[k] * H.im[k], 1e-24));
+    return minPhaseFirDb((f) => db[Math.min(nfft / 2, Math.round(f * nfft))], 1, h.length, nfft);
+  }
+  function buildSpeakerIr(o) {
+    const t0 = Date.now(), fs = o.fs, mode = o.mode;
+    if (mode !== 'room' && mode !== 'pro22') throw new Error('書き出せるのは ROOM と Pro22 だけです (ほかのモードは時間で変わる処理を含みます)');
+    const r = roomBuild(o.S, fs, mode, o.notch || 0, null);
+    const roomPlan = () => { const p = roomConvPlan(r.resp.h, 128); p.dry = r.resp.dry; return p; };
+    let fir = null, firLen = 0, firDelay = 0;
+    if (o.fir) {
+      const eq = o.fir.text ? parseEqPc(o.fir.text) : null, d = designFirPair(o.fir.cfg, fs, eq ? [eq] : []);
+      if (d) { let l = d.l, rr = d.r; if (o.minPhase) { l = irMinPhase(l); rr = irMinPhase(rr); } else firDelay = (l.length - 1) / 2;
+        fir = { l, r: rr }; firLen = l.length; }
+    }
+    const firPlan = () => { const p = roomConvPlan([[fir.l, new Float64Array(fir.l.length)], [new Float64Array(fir.r.length), fir.r]], 128); p.diag = true; return p; };
+    const A = 1e-3, B = 128, N = Math.ceil((r.resp.h[0][0].length + firLen + Math.round(0.1 * fs)) / B) * B;
+    const out = [];
+    for (const side of [0, 1]) {
+      const e = new Engine(fs); e.setParams(o.prm, o.geo, o.cal); if (o.spec) e.setPost(o.spec);
+      e.setRoom(mode, roomPlan()); if (fir) e.setEqFir(firPlan(), firDelay);
+      const yl = new Float64Array(N), yr = new Float64Array(N), xl = new Float64Array(B), xr = new Float64Array(B);
+      for (let i = 0; i < N; i += B) {
+        xl.fill(0); xr.fill(0); if (i === 0) (side ? xr : xl)[0] = A;
+        e.process(xl, xr, yl.subarray(i, i + B), yr.subarray(i, i + B), B);
+      }
+      for (let i = 0; i < N; i++) { yl[i] /= A; yr[i] /= A; }
+      out.push(yl, yr);                            // side 0: L->L, L->R; side 1: R->L, R->R
+    }
+    // trim the tail below -100 dB of the peak, with a short fade
+    let pk = 0; for (const c of out) for (let i = 0; i < N; i++) pk = Math.max(pk, Math.abs(c[i]));
+    let end = 0; const thr = pk * 1e-5; for (const c of out) for (let i = N - 1; i > end; i--) if (Math.abs(c[i]) > thr) { end = i; break; }
+    const len = Math.min(N, end + Math.round(0.01 * fs)), fade = Math.min(len, Math.round(0.01 * fs));
+    for (const c of out) for (let i = 0; i < fade; i++) c[len - fade + i] *= 0.5 * (1 + Math.cos(Math.PI * i / fade));
+    // 4-channel 32-bit float WAV (WAVE_FORMAT_EXTENSIBLE would also do; plain IEEE float is read everywhere)
+    const nb = len * 4 * 4, buf = new ArrayBuffer(44 + nb), v = new DataView(buf);
+    const str = (p, s) => { for (let i = 0; i < s.length; i++) v.setUint8(p + i, s.charCodeAt(i)); };
+    str(0, 'RIFF'); v.setUint32(4, 36 + nb, true); str(8, 'WAVE'); str(12, 'fmt '); v.setUint32(16, 16, true);
+    v.setUint16(20, 3, true); v.setUint16(22, 4, true); v.setUint32(24, fs, true); v.setUint32(28, fs * 16, true); v.setUint16(32, 16, true); v.setUint16(34, 32, true);
+    str(36, 'data'); v.setUint32(40, nb, true);
+    let p = 44; for (let i = 0; i < len; i++) for (let c = 0; c < 4; c++) { v.setFloat32(p, out[c][i], true); p += 4; }
+    let e0 = 0, e1 = 0; for (let i = 0; i < len; i++) { e0 += out[0][i] * out[0][i]; e1 += out[1][i] * out[1][i]; }
+    return { wav: buf, info: { fs, len, seconds: len / fs, peak: pk, mode, fir: !!fir, minPhase: !!o.minPhase, delayMs: 1000 * firDelay / fs, crossDb: 10 * Math.log10(e1 / e0), ms: Date.now() - t0 } };
+  }
+
   return {
-    Engine, Limiter, MODE_CLASSES, EqFirStage, designFirPair, parseEqPc, fpDpss, fpRfft, fpIrfft, fpPchip, fpWindow, ExStage, exHilbert, exButterHp2,
+    Engine, Limiter, MODE_CLASSES, buildSpeakerIr, EqFirStage, designFirPair, parseEqPc, fpDpss, fpRfft, fpIrfft, fpPchip, fpWindow, ExStage, exHilbert, exButterHp2,
     buildBrir, rmAssemble, roomResponse, pro22Response, roomBuild, roomCoreConfig, roomConvPlan, RoomConv, RoomMode, rmRfft, rmIrfft, rmFft, sphereTable, sphBessel, rmParams, rmFaceMaterial, rmEyring, rmLayout, rmButterResp, rmMinPhase, ROOM_DEFAULTS, P22_DEFAULTS, Pro10V3, Pro12V2, Pro13, Pro14V2, Pro15, Pro16, Pro17, Air8, Pro21, WetShaper, wetShapeFir, directivityNodesDb, chValue, GainRamp,
     BauerV3, Bs2b, Fdn, TapSet: makeTapSet, VertTaps, Cascade, calibrationScale,
     designBauerV3, normaliseParams, normaliseV4, levelsDb, rtScale, butterHP2, peaking, shelf, lowpass1,
@@ -6225,6 +6292,19 @@ $('hrOn').onclick = () => { if (!HR) { postErr.hr = '先にHRTFファイルを�
 $('eqPre').onchange = () => { S.eqPre = $('eqPre').checked; save(); pushPost(true); renderPostMsgs(); eqDraw(); };
 $('hrSync').onchange = () => { S.hrSync = $('hrSync').checked; save(); pushParams(); renderPostMsgs(); };
 { const t = lsGet(LS_EQ); if (t) eqLoad(t, S.eqName, true); const h = lsGet(LS_HR); if (h) hrLoad(h, S.hrName, true); if (!EQ && S.eq_engine !== 'pc') S.eqOn = false; if (!HR) S.hrOn = false; }
+// An HRTF sent from the ear-photo lab: <app>#hrtf=<base64url of deflate-raw text>&n=<name>&z=1 (z=0: not compressed)
+(async () => {
+  const m = /^#hrtf=([A-Za-z0-9_-]+)(?:&n=([^&]*))?(?:&z=([01]))?/.exec(location.hash || ''); if (!m) return;
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* keep going */ }
+  try {
+    const b64 = m[1].replace(/-/g, '+').replace(/_/g, '/'), bin = atob(b64 + '==='.slice((b64.length + 3) % 4)), u8 = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    let text;
+    if (m[3] === '0') text = new TextDecoder().decode(u8);
+    else text = await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+    const name = m[2] ? decodeURIComponent(m[2]) : '耳の写真から';
+    if (hrLoad(text, name, false)) { showErr(''); const hm = $('hrMsg'); hm.textContent = '耳の写真から作った HRTF を受け取り、オンにしました：' + hm.textContent; try { $('hrOn').scrollIntoView({ block: 'center' }); } catch (e) { /* ignore */ } }
+  } catch (e) { showErr('送られた HRTF を読めませんでした: ' + (e && e.message || e)); }
+})();
 window.addEventListener('resize', () => { eqDraw(); hrDraw(); });
 
 // Pro 21: the room that was asked for, or why it cannot be built
@@ -6245,6 +6325,11 @@ const ROOM_MODES = new Set(['room', 'pro22']);
 const ROOM_WORKER_TAIL = `
 const cache = {};
 self.onmessage = (ev) => {
+  if (ev.data.kind === 'ir') {
+    try { const r = ExoDSP.buildSpeakerIr(ev.data.o); self.postMessage({ kind: 'ir', wav: r.wav, info: r.info }, [r.wav]); }
+    catch (e) { self.postMessage({ kind: 'ir', error: String(e && e.message || e) }); }
+    return;
+  }
   if (ev.data.kind === 'fir') {
     const { id, cfg, fs, text } = ev.data;
     try {
@@ -6272,7 +6357,7 @@ function roomWorkerGet() {
   try {
     roomWorker = EXT ? new Worker(chrome.runtime.getURL('room_worker.js'))
       : new Worker(URL.createObjectURL(new Blob([$('dsp').textContent + '\n' + ROOM_WORKER_TAIL], { type: 'application/javascript' })));
-    roomWorker.onmessage = (ev) => (ev.data && ev.data.kind === 'fir' ? firDone(ev.data) : roomDone(ev.data));
+    roomWorker.onmessage = (ev) => (ev.data && ev.data.kind === 'fir' ? firDone(ev.data) : ev.data && ev.data.kind === 'ir' ? irDone(ev.data) : roomDone(ev.data));
     roomWorker.onerror = () => { roomWorkerFailed = true; roomWorker = null; roomBusy = false; firBusy = false; roomKick(); firKick(); };
   } catch (e) { roomWorkerFailed = true; roomWorker = null; }
   return roomWorker;
@@ -6444,6 +6529,34 @@ function pcImport(cfg) {
   return msg;
 }
 $('pcPick').onclick = () => $('pcFile').click();
+// ---- the ROOM / Pro22 chain as a 4-channel impulse response for JamesDSP's convolver -----------------------------------
+let irUrl = '', irBusy = false;
+function irMsg(t, err) { const m = $('irMsg'); m.hidden = false; m.className = 'msg' + (err ? ' err' : ''); m.textContent = t; }
+function irExport() {
+  if (irBusy) return;
+  if (!ROOM_MODES.has(S.mode)) { irMsg('空間モードを ROOM か Pro22 にしてから書き出してください (ほかのモードは時間で変わる処理を含むため、ファイルにできません)。', true); return; }
+  const fs = Number($('irFs').value) || 48000, { prm, geo, cal } = buildParams();
+  let spec = null; try { spec = postSpec(fs); } catch (e) { /* no EQ / HRTF */ }
+  const o = { fs, S: JSON.parse(JSON.stringify(S)), mode: S.mode, notch: prm.notch_hz || 0, prm, geo, cal, spec,
+    fir: S.eqOn && S.eq_engine === 'pc' ? { cfg: firCfg(), text: EQ_TEXT || '' } : null, minPhase: $('irDelay').value !== 'lin' };
+  irBusy = true; $('irSave').hidden = true; irMsg('作成中 … (部屋の応答と EQ を作り、左右それぞれのインパルスを通します。10〜30 秒)');
+  const w = roomWorkerGet();
+  if (w) { w.postMessage({ kind: 'ir', o }); return; }
+  setTimeout(() => { try { const r = DSP.buildSpeakerIr(o); irDone({ wav: r.wav, info: r.info }); } catch (e) { irDone({ error: String(e && e.message || e) }); } }, 30);
+}
+function irDone(m) {
+  irBusy = false;
+  if (m.error) { irMsg('書き出せませんでした: ' + m.error, true); return; }
+  const i = m.info, name = `ExoSpace_${i.mode === 'pro22' ? 'Pro22' : 'ROOM'}_${i.fs === 44100 ? '44k' : '48k'}${i.minPhase ? '' : '_PCphase'}.wav`;
+  if (irUrl) URL.revokeObjectURL(irUrl);
+  const blob = new Blob([m.wav], { type: 'audio/wav' }); irUrl = URL.createObjectURL(blob);
+  const a = $('irSave'); a.href = irUrl; a.download = name; a.textContent = name + ' を保存 (' + (blob.size / 1048576).toFixed(1) + ' MB)'; a.hidden = false;
+  irMsg(`できました: 4 チャンネル (左→左・左→右・右→左・右→右、JamesDSP の「full stereo」の並び)・${(i.fs / 1000).toFixed(1)} kHz・${i.seconds.toFixed(2)} 秒・32 bit float。`
+    + (i.fir ? (i.minPhase ? ' PC方式のEQ入り (遅れなし)。' : ` PC方式のEQ入り (遅れ ${i.delayMs.toFixed(0)} ms)。`) : ' EQなし (PC方式のEQが切か、低遅延のEQです。低遅延のEQ・HRTF は入っています)。')
+    + ' JamesDSP の音量が大きすぎる・小さすぎる時は、JamesDSP 側の出力ゲインで合わせてください。');
+  window.__exo.irLast = i;
+}
+$('irBtn').onclick = irExport;
 $('hrMode').onchange = () => { S.hr_mode = $('hrMode').value; save(); renderPost(); pushPost(true); };
 $('diagBtn').onclick = () => {
   const t = (id) => { const e = $(id); return e && !e.hidden ? e.textContent.trim() : ''; };
