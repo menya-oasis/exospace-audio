@@ -5878,6 +5878,10 @@ function renderMode() {
   if (!MODES[S.mode]) S.mode = 'pro11v4';
   const M = curMode(), box = $('modeCtl');
   $('mode').value = S.mode; $('modeNote').textContent = M.note;
+  // ROOM / Pro22 only sound like the PC with the PC's room, materials and EQ: say whether this device has them
+  if (S.mode === 'room' || S.mode === 'pro22') $('modeNote').textContent += S.pcImported
+    ? ` ｜ PC版の設定: ${S.pcImported.name} (${S.pcImported.when}) を読み込み済み${S.eqOn ? '' : '・EQは切'}`
+    : ' ｜ この端末ではPC版の設定をまだ読み込んでいません (部屋の大きさ・壁・距離・EQ が初期値なので、PC版とは違う音です)。詳細設定 →「PC版の設定ファイルを選ぶ」で読み込めます。設定は端末・ブラウザごとに別々です。';
   $('spaceH').textContent = '空間 ' + M.name;
   $('scopeSec').hidden = !M.p11; $('p11ctl').hidden = !M.p11; $('p11more').hidden = !M.p11;
   $('bauerSec').hidden = !!M.replace;
@@ -6414,7 +6418,7 @@ $('diagBtn').onclick = () => {
 $('pcFile').onchange = async (ev) => {
   const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; if (!f) return;
   const m = $('pcMsg'); m.hidden = false;
-  try { const msg = pcImport(JSON.parse(await f.text())); save(); fillModes(); builtFor = ''; syncUi(); refreshCtls(); renderEx(); pushParams(); pushPost(true); m.textContent = msg; m.classList.remove('err'); }
+  try { const msg = pcImport(JSON.parse(await f.text())); S.pcImported = { name: f.name, when: new Date().toLocaleString('ja-JP') }; save(); fillModes(); builtFor = ''; syncUi(); refreshCtls(); renderEx(); pushParams(); pushPost(true); m.textContent = msg; m.classList.remove('err'); }
   catch (e) { m.textContent = '読み込めませんでした: ' + (e && e.message ? e.message : e); m.classList.add('err'); }
 };
 
