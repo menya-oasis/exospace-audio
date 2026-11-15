@@ -406,6 +406,10 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
         <button class="btn" id="pcPick">PC版の設定ファイルを選ぶ</button>
         <input type="file" id="pcFile" accept=".json,application/json" hidden>
         <div class="msg" id="pcMsg" hidden></div>
+        <div class="sub2">いまの状態を書き出す</div>
+        <div class="hint">音の違いを調べる時に使います。空間モード・EQ・部屋・処理の周波数など、いま実際に動いている状態を文字で出します。そのまま貼り付けて送れます。</div>
+        <button class="btn" id="diagBtn">いまの状態を書き出す</button>
+        <textarea id="diagOut" readonly rows="8" hidden style="width:100%;font:12px ui-monospace,monospace;margin-top:8px"></textarea>
       </div>
     </details>
   </section>
@@ -5197,6 +5201,7 @@ const SPEC = {
   r_distance: ['スピーカーまでの距離', 0.5, 5, 0.05, 1.2, ' m', 2],
   room_spk_az: ['スピーカーの角度 (左右の開き)', 10, 60, 1, 30, '°', 0],
   room_spk_z: ['スピーカーの高さ (耳は 1.2 m)', 0.5, 2.0, 0.01, 1.0, ' m', 2],
+  room_spk_lf_hz: ['スピーカーの低音の下限 (PC版 35 Hz)', 15, 80, 1, 35, ' Hz', 0],
   room_offset_m: ['聴く位置の左右のずれ', 0, 1, 0.01, 0.30, ' m', 2],
   room_mix_db: ['響きの量 (0 = 物理どおり)', -12, 6, 0.1, 0, ' dB', 1],
   room_ceiling_scatter: ['天井の反射をばらす', 0, 0.95, 0.01, 0.9, '', 2],
@@ -5274,10 +5279,10 @@ const MODES = {
       'late_db', 'rt_low', 'rt_high', 'coh_lf', 'coh_hf'] },
   room: { name: 'ROOM', replace: true, extra: 'room',
     note: '部屋の大きさ・壁の材質・スピーカーと聴き手の位置から、2本のスピーカーが部屋で鳴った音を両耳で受けた応答 (反射3回までの鏡像、拡散した残響、低音の部屋の共振) を計算し、その応答を曲に畳み込みます。PC版の ROOM (exospace_room.py) と同じ計算です。クロスフィードは使いません (左右の回り込みは部屋と頭のモデルが作ります)。',
-    ctl: ['room_mix_db', 'p21_room_width', 'p21_room_front', 'p21_room_back', 'p21_room_height', 'r_distance', 'room_spk_az', 'room_spk_z', 'room_offset_m', 'room_ceiling_scatter', 'room_bass_trap', 'room_eq_bass', 'room_eq_tone', 'room_dir', 'room_pinna', 'room_norm_db', 'room_order', 'air_temp', 'air_humidity'] },
+    ctl: ['room_mix_db', 'p21_room_width', 'p21_room_front', 'p21_room_back', 'p21_room_height', 'r_distance', 'room_spk_az', 'room_spk_z', 'room_spk_lf_hz', 'room_offset_m', 'room_ceiling_scatter', 'room_bass_trap', 'room_eq_bass', 'room_eq_tone', 'room_dir', 'room_pinna', 'room_norm_db', 'room_order', 'air_temp', 'air_humidity'] },
   pro22: { name: 'Pro 22', bauer: true, extra: 'room',
     note: '直接音は入力のまま (クロスフィードは掛けられます) にして、ROOM と同じ部屋の反射と残響だけを足します。PC版の Pro22 (exospace_pro22.py) と同じ計算です。',
-    ctl: ['p22_level_db', 'p22_late_db', 'p21_room_width', 'p21_room_front', 'p21_room_back', 'p21_room_height', 'r_distance', 'room_spk_az', 'room_spk_z', 'room_offset_m', 'room_ceiling_scatter', 'room_bass_trap', 'room_dir', 'room_pinna', 'room_order', 'air_temp', 'air_humidity'] },
+    ctl: ['p22_level_db', 'p22_late_db', 'p21_room_width', 'p21_room_front', 'p21_room_back', 'p21_room_height', 'r_distance', 'room_spk_az', 'room_spk_z', 'room_spk_lf_hz', 'room_offset_m', 'room_ceiling_scatter', 'room_bass_trap', 'room_dir', 'room_pinna', 'room_order', 'air_temp', 'air_humidity'] },
   cfonly: { name: 'クロスフィードのみ', bauer: true, hideSpace: true, openBauer: true,
     note: '空間を作らず、クロスフィードだけを掛けます。下の「クロスフィード」で、方式と各値を細かく決められます。EQ・HRTFも使えます。', ctl: [] },
 };
@@ -6397,6 +6402,15 @@ function pcImport(cfg) {
   return msg;
 }
 $('pcPick').onclick = () => $('pcFile').click();
+$('diagBtn').onclick = () => {
+  const t = (id) => { const e = $(id); return e && !e.hidden ? e.textContent.trim() : ''; };
+  const d = { app: 'ExoSpace Mobile', when: new Date().toISOString(), ua: navigator.userAgent,
+    audio: ctx ? { rate: ctx.sampleRate, device: devRate || ctx.sampleRate, state: ctx.state, engine: mode } : 'not started',
+    status: t('status'), room: t('roomInfo'), eq: t('firInfo'), eqFile: (typeof EQ_TEXT === 'string' && EQ_TEXT) ? EQ_TEXT.slice(0, 120) : '', tab: !!capStream,
+    settings: S };
+  const out = $('diagOut'); out.hidden = false; out.value = JSON.stringify(d, null, 1); out.select();
+  try { navigator.clipboard.writeText(out.value).then(() => { $('diagBtn').textContent = 'コピーしました (貼り付けて送れます)'; }, () => {}); } catch (e) { /* the text is selected */ }
+};
 $('pcFile').onchange = async (ev) => {
   const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; if (!f) return;
   const m = $('pcMsg'); m.hidden = false;
