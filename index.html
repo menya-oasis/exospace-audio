@@ -368,6 +368,10 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     <canvas class="curve" id="hrCv" role="img" aria-label="HRTF補正の周波数特性 (左耳と右耳)"></canvas>
     <div class="legend"><span><i style="background:var(--wall)"></i>左耳</span><span><i style="background:var(--floor)"></i>右耳</span><span>点線：耳のくぼみ</span></div>
     <div id="hrAmtBox"></div>
+    <div class="ctl"><label for="hrMode">掛け方</label><span></span><select id="hrMode">
+      <option value="keep">音色を保つ (おすすめ)</option>
+      <option value="pc">PC版と同じ (ファイルの Preamp)</option></select></div>
+    <div class="hint" id="hrModeHint"></div>
     <label class="chk"><input type="checkbox" id="hrSync" checked><span>耳のくぼみの位置を、空間モードの反射に合わせる<br><span class="hint" id="hrNotchTxt">ファイルを読み込むと、くぼみの位置が出ます。</span></span></label>
     <details>
       <summary>HRTFのテキストを貼り付けて読み込む</summary>
@@ -3154,7 +3158,38 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     const l0 = Math.log(Math.max(f[lo], 1)), l1 = Math.log(Math.max(f[hi], 1));
     return l1 === l0 ? g[lo] : g[lo] + (g[hi] - g[lo]) * (lx - l0) / (l1 - l0);
   }
-  const hrDb = (P, ch, f, amount) => (hrInterp(f, P.curves[ch][0], P.curves[ch][1]) + P.preamp) * amount;
+  // Two ways to apply a profile:
+  //  'pc'   (PC版と同じ)  (curve + file preamp) * amount, as hrtf_profile.py. The file's preamp is a worst-case headroom
+  //         (-6.3 dB for a +5.7 dB treble lift), so every band drops by it and lows / mids sound sunk.
+  //  'keep' (音色を保つ)   the curve smoothed to 1/5 octave (fine ripples below that width are not heard: Brinkmann &
+  //         Weinzierl / JASA 2014 found 1/5-octave complex smoothing of HRTFs transparent), scaled by amount, then
+  //         one common gain that puts the 100 Hz - 1 kHz band back at 0 dB instead of the file's preamp. The bass and
+  //         the body of voices and instruments stay where they were; only what the profile is for - the treble shape
+  //         and the pinna peaks / notch above about 2 kHz - is added. Peaks are left to the output limiter.
+  const HR_N = 960, HR_F0 = 20, HR_OCT = Math.log2(20000 / 20);
+  const hrGridF = (i) => HR_F0 * Math.pow(2, HR_OCT * i / (HR_N - 1));
+  function hrSmoothed(P) {
+    if (P._sm) return P._sm;
+    const half = Math.round(0.1 / (HR_OCT / (HR_N - 1))), sm = {};
+    for (const ch of ['L', 'R']) {
+      const raw = new Float64Array(HR_N), out = new Float64Array(HR_N);
+      for (let i = 0; i < HR_N; i++) raw[i] = hrInterp(hrGridF(i), P.curves[ch][0], P.curves[ch][1]);
+      for (let i = 0; i < HR_N; i++) { let a = 0, c = 0; for (let j = Math.max(0, i - half); j <= Math.min(HR_N - 1, i + half); j++) { a += raw[j]; c++; } out[i] = a / c; }
+      sm[ch] = out;
+    }
+    return (P._sm = sm);
+  }
+  function hrKeepGain(P, amount) {                 // dB that puts the 100 Hz - 1 kHz average back at 0 (log-frequency mean, L and R)
+    P._kg = P._kg || new Map(); if (P._kg.has(amount)) return P._kg.get(amount);
+    const sm = hrSmoothed(P); let a = 0, c = 0;
+    for (let i = 0; i < HR_N; i++) { const f = hrGridF(i); if (f < 100 || f > 1000) continue; for (const ch of ['L', 'R']) { a += sm[ch][i] * amount; c++; } }
+    const g = c ? -a / c : 0; P._kg.set(amount, g); return g;
+  }
+  function hrDb(P, ch, f, amount, mode) {
+    if (mode !== 'keep') return (hrInterp(f, P.curves[ch][0], P.curves[ch][1]) + P.preamp) * amount;
+    const sm = hrSmoothed(P)[ch], x = Math.max(0, Math.min(HR_N - 1, Math.log2(Math.max(f, HR_F0) / HR_F0) / HR_OCT * (HR_N - 1))), i = Math.min(HR_N - 2, Math.floor(x)), t = x - i;
+    return (sm[i] + (sm[i + 1] - sm[i]) * t) * amount + hrKeepGain(P, amount);
+  }
   function hrNotchOf(P, lo = 5000, hi = 11000, minDepth = 3) {      // the main pinna notch (Hz) of a frontal profile, or 0
     const N = 1200, fq = [], g = [];
     for (let i = 0; i < N; i++) { const f = 1000 * Math.pow(18, i / (N - 1)); fq.push(f); g.push(0.5 * (hrInterp(f, P.curves.L[0], P.curves.L[1]) + hrInterp(f, P.curves.R[0], P.curves.R[1]))); }
@@ -3179,9 +3214,9 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     for (let i = 0; i < tail; i++) h[nTaps - tail + i] *= 0.5 * (1 + Math.cos(PI * i / tail));
     return h;
   }
-  function hrDesign(P, fs, amount) {
+  function hrDesign(P, fs, amount, mode) {
     const nTaps = Math.max(1024, Math.round(fs * 0.0215)); let nfft = 1; while (nfft < nTaps * 8) nfft <<= 1;
-    return ['L', 'R'].map((ch) => minPhaseFirDb((f) => hrDb(P, ch, f, amount), fs, nTaps, nfft));
+    return ['L', 'R'].map((ch) => minPhaseFirDb((f) => hrDb(P, ch, f, amount, mode), fs, nTaps, nfft));
   }
   /**
    * o = { eq, eqOn, usePre, eqPreOverride (dB, optional), hr, hrOn, hrAmt (0..1.5) }  ->  what the audio thread needs
@@ -3197,7 +3232,7 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
       const pre = o.eqPreOverride != null ? o.eqPreOverride : eqPreDb(eq, o.usePre !== false, fs);
       if (sos.length || fir || pre !== 0) out.eq = { pre: Math.pow(10, pre / 20), sos, fir };
     }
-    if (o.hr && o.hrOn && o.hrAmt > 0) { const [l, r] = hrDesign(o.hr, fs, o.hrAmt); out.hr = { l, r }; }
+    if (o.hr && o.hrOn && o.hrAmt > 0) { const [l, r] = hrDesign(o.hr, fs, o.hrAmt, o.hrMode); out.hr = { l, r }; }
     return out;
   }
 
@@ -5061,7 +5096,7 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     BauerV3, Bs2b, Fdn, TapSet: makeTapSet, VertTaps, Cascade, calibrationScale,
     designBauerV3, normaliseParams, normaliseV4, levelsDb, rtScale, butterHP2, peaking, shelf, lowpass1,
     DEFAULTS, V4_DEFAULTS, ENGINE_DEFAULTS, FDN_MS, AP_MS,
-    parseEQ, eqDb, eqPreDb, eqMagDb, eqFilterCoefs, hrParse, hrDb, hrInterp, hrNotchOf, hrDesign, designPost, PostChain, PConv, minPhaseFirDb,
+    parseEQ, eqDb, eqPreDb, eqMagDb, eqFilterCoefs, hrParse, hrDb, hrKeepGain, hrInterp, hrNotchOf, hrDesign, designPost, PostChain, PConv, minPhaseFirDb,
     pro21Check, pro21Events, P21_DEFAULTS, P21_REFL, P21_SURF,
   };
 });
@@ -5083,7 +5118,7 @@ const DEFAULTS = {
   mode: 'pro11v4', mat_dir_on: true, mat_dir_strength: 1.0, ch_enabled: true, p_front: 75, p_height: 50, fdn_enabled: true,
   pro17_dither_on: false,
   bauer_method: 'exo',
-  eqOn: false, eqPre: true, eqName: '', hrOn: false, hrSync: true, hrName: '',
+  eqOn: false, eqPre: true, eqName: '', hrOn: false, hrSync: true, hrName: '', hr_mode: 'keep',
   p21_air_db_per_m: [0.0, 0.01, 0.04, 0.10],
   eq_first: true, eq_engine: 'min', pc_hpf: '', pcfir: { taps: 43200, window_idx: '1', kaiser_beta: 8.6, hpf: 20.0, lpf: 20000.0, filter_ver: 2, interp_mode: 'hermite', phase_mode: 'pure', norm_mode: 'off', h4_ha_weight: 1.0, h4_pa_depth: 1.0, h5_min_hz: 80.0, mix_mode: 'avg' },
   ex_enabled: false, ex_mode: 'standard', room_material: 'standard', room_version: 2,
@@ -6079,7 +6114,7 @@ function decodeText(buf) {
 }
 const curNotch = () => ((HR && S.hrOn && S.hrSync && HR.notch) ? HR.notch : 0);
 const postFs = () => (ctx ? ctx.sampleRate : 48000);
-function postSpec(fs) { return DSP.designPost({ eq: EQ, eqOn: S.eqOn && S.eq_engine !== 'pc', usePre: S.eqPre, hr: HR, hrOn: S.hrOn, hrAmt: (Number(S.hrAmt) || 0) / 100 }, fs); }
+function postSpec(fs) { return DSP.designPost({ eq: EQ, eqOn: S.eqOn && S.eq_engine !== 'pc', usePre: S.eqPre, hr: HR, hrOn: S.hrOn, hrAmt: (Number(S.hrAmt) || 0) / 100, hrMode: S.hr_mode }, fs); }
 let postTimer = 0;
 function pushPost(now) {
   clearTimeout(postTimer);
@@ -6137,7 +6172,7 @@ function hrDraw() {
   const cv = $('hrCv'); if (!cv) return;
   if (!HR) { drawCurves(cv, [], []); return; }
   const amt = (Number(S.hrAmt) || 0) / 100;
-  drawCurves(cv, [{ fn: (f) => DSP.hrDb(HR, 'L', f, amt), color: '--wall' }, { fn: (f) => DSP.hrDb(HR, 'R', f, amt), color: '--floor' }], HR.notch ? [HR.notch] : []);
+  drawCurves(cv, [{ fn: (f) => DSP.hrDb(HR, 'L', f, amt, S.hr_mode), color: '--wall' }, { fn: (f) => DSP.hrDb(HR, 'R', f, amt, S.hr_mode), color: '--floor' }], HR.notch ? [HR.notch] : []);
 }
 function renderPostMsgs() {
   const em = $('eqMsg'), hm = $('hrMsg');
@@ -6152,8 +6187,8 @@ function renderPostMsgs() {
   else if (!HR) hm.textContent = 'まだ読み込んでいません。';
   else {
     let lo = 0, hi = 0; const amt = (Number(S.hrAmt) || 0) / 100;
-    for (const ch of ['L', 'R']) for (let i = 0; i < 200; i++) { const d = DSP.hrDb(HR, ch, 20 * Math.pow(1000, i / 199), amt); lo = Math.min(lo, d); hi = Math.max(hi, d); }
-    hm.textContent = (S.hrName ? S.hrName + '：' : '') + '左 ' + HR.curves.L[0].length + ' 点、右 ' + HR.curves.R[0].length + ' 点。補正の幅は ' + lo.toFixed(1) + '〜' + (hi >= 0 ? '+' : '') + hi.toFixed(1) + ' dB。';
+    for (const ch of ['L', 'R']) for (let i = 0; i < 200; i++) { const d = DSP.hrDb(HR, ch, 20 * Math.pow(1000, i / 199), amt, S.hr_mode); lo = Math.min(lo, d); hi = Math.max(hi, d); }
+    hm.textContent = (S.hrName ? S.hrName + '：' : '') + '左 ' + HR.curves.L[0].length + ' 点、右 ' + HR.curves.R[0].length + ' 点。補正の幅は ' + lo.toFixed(1) + '〜' + (hi >= 0 ? '+' : '') + hi.toFixed(1) + ' dB。' + (S.hr_mode === 'pc' ? ` Preamp ${HR.preamp.toFixed(1)} dB (全帯域が下がります)。` : ` 音量合わせ ${DSP.hrKeepGain(HR, amt).toFixed(1)} dB (ファイルの Preamp ${HR.preamp.toFixed(1)} dB の代わり)。`);
   }
   $('hrNotchTxt').textContent = !HR ? 'ファイルを読み込むと、くぼみの位置が出ます。' : (HR.notch ? 'このファイルの耳のくぼみ：約 ' + (HR.notch / 1000).toFixed(2) + ' kHz。' : 'このファイルには、はっきりしたくぼみ (5〜11 kHz) がありません。標準の位置を使います。');
   $('eqPreTxt').textContent = EQ ? 'いまのプリアンプ：' + DSP.eqPreDb(EQ, S.eqPre, postFs()).toFixed(1) + ' dB。EQで持ち上げた分だけ音量を下げて、音割れを防ぎます。' : 'EQで持ち上げた分だけ音量を下げて、音割れを防ぎます。';
@@ -6162,7 +6197,10 @@ let hrAmtBuilt = false;
 function renderPost() {
   if (!hrAmtBuilt) { hrAmtBuilt = true; $('hrAmtBox').innerHTML = ctlRow('hrAmt', 'p_') + '<div class="hint">100 %でファイルのとおりです。0 %で補正なし。強くかけると音割れしやすいので、そのときは出力ゲインを下げてください。</div>'; }
   $('eqOn').setAttribute('aria-pressed', String(!!((EQ || S.eq_engine === 'pc') && S.eqOn))); $('hrOn').setAttribute('aria-pressed', String(!!(HR && S.hrOn)));
-  $('eqPre').checked = !!S.eqPre; $('hrSync').checked = !!S.hrSync;
+  $('eqPre').checked = !!S.eqPre; $('hrSync').checked = !!S.hrSync; $('hrMode').value = S.hr_mode === 'pc' ? 'pc' : 'keep';
+  $('hrModeHint').textContent = S.hr_mode === 'pc'
+    ? 'PC版の hrtf_profile.py と同じです (カーブ + ファイルの Preamp)。Preamp の分、低域〜中域も含めて全体が下がります。'
+    : '低域〜中域 (100 Hz〜1 kHz) を 0 dB に保ち、HRTF の役目である高域の形 (耳のピーク・くぼみ) だけを足します。1/5 オクターブより細かいギザギザは聞き分けられないので均します。大きな曲のピークは音割れ防止が受け持ちます。';
   const ul = $('eqFlt'); ul.innerHTML = '';
   if (EQ) for (const f of EQ.filters) { const li = document.createElement('li'), a = document.createElement('span'), b = document.createElement('b');
     a.textContent = `${f.type} ${f.fc >= 1000 ? (f.fc / 1000).toFixed(2) + 'k' : f.fc}`; b.textContent = `${f.gain > 0 ? '+' : ''}${f.gain.toFixed(1)} dB · Q ${(f.bw ? f.bw + 'oct' : f.q.toFixed(2))}`;
@@ -6406,6 +6444,7 @@ function pcImport(cfg) {
   return msg;
 }
 $('pcPick').onclick = () => $('pcFile').click();
+$('hrMode').onchange = () => { S.hr_mode = $('hrMode').value; save(); renderPost(); pushPost(true); };
 $('diagBtn').onclick = () => {
   const t = (id) => { const e = $(id); return e && !e.hidden ? e.textContent.trim() : ''; };
   const d = { app: 'ExoSpace Mobile', when: new Date().toISOString(), ua: navigator.userAgent,
