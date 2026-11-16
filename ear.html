@@ -81,6 +81,24 @@ button, input, select { font: inherit; color: inherit; }
 .mode[aria-pressed="true"] { background: var(--surface); border-color: var(--c); box-shadow: inset 0 0 0 1px var(--c); }
 .hint { margin: 0; font-size: .86rem; color: var(--fg); background: var(--sunk); border-radius: 8px; padding: 8px 10px; min-height: 3.2em; }
 .hint em { font-style: normal; color: var(--muted); }
+/* sample figure: the demo ear with numbered points, the step being asked for is lit */
+.hintrow { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 10px; align-items: start; }
+.hintrow.big { grid-template-columns: 240px minmax(0, 1fr); }
+@media (max-width: 520px) { .hintrow.big { grid-template-columns: minmax(0, 240px); } }
+.guide { margin: 0; min-width: 0; }
+.guidebtn { appearance: none; border: 1px solid var(--line); border-radius: 8px; padding: 0; background: var(--sunk); cursor: zoom-in; display: block; width: 100%; overflow: hidden; line-height: 0; }
+.hintrow.big .guidebtn { cursor: zoom-out; }
+.guidebtn svg { width: 100%; height: auto; display: block; }
+.guidecap { display: block; margin-top: 3px; font-size: .68rem; color: var(--muted); line-height: 1.3; }
+.ring { animation: gpulse 1.4s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes gpulse { 0% { transform: scale(.8); opacity: .9; } 100% { transform: scale(1.7); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .ring { animation: none; opacity: .5; } }
+.guideAll { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; align-items: start; }
+.guideAll ol { margin: 0 0 8px; padding: 0; list-style: none; display: grid; gap: 6px; font-size: .86rem; }
+.guideAll li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.guideAll li b { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #ffd84a; color: #111; border: 1.5px solid #111; font-size: .78rem; font-family: var(--f-mono); }
+@media (max-width: 420px) { .hintrow { grid-template-columns: 96px minmax(0, 1fr); } .guideAll { grid-template-columns: 120px minmax(0, 1fr); } }
+@media (min-width: 980px) { .bench { max-height: calc(100vh - 24px); overflow-y: auto; } }
 
 .canvas-wrap { display: block; background: var(--sunk); border-radius: 8px; overflow: hidden; overscroll-behavior: contain; }
 .canvas-wrap.zoomed { overflow: auto; }
@@ -182,7 +200,13 @@ code { font-family: var(--f-mono); font-size: .8em; background: var(--sunk); bor
       <button class="mode" type="button" data-mode="c2" style="--c: var(--c2)"><span class="sw"></span><b>対耳輪</b><i data-count="c2">0点</i></button>
       <button class="mode" type="button" data-mode="c3" style="--c: var(--c3)"><span class="sw"></span><b>耳甲介</b><i data-count="c3">0点</i></button>
     </div>
-    <p class="hint" id="hint"></p>
+    <div class="hintrow" id="hintRow">
+      <figure class="guide">
+        <button class="guidebtn" id="guideBtn" type="button" aria-label="見本の図を大きくする" aria-pressed="false"><svg id="guideSvg" viewBox="0 0 520 680" aria-hidden="true"></svg></button>
+        <figcaption class="guidecap">見本の耳（タップで拡大）</figcaption>
+      </figure>
+      <p class="hint" id="hint"></p>
+    </div>
     <div class="canvas-wrap" id="benchWrap"><canvas id="bench" aria-label="耳の写真。タップで点を追加、ドラッグで移動"></canvas></div>
     <div class="row" style="justify-content: space-between">
       <div class="row">
@@ -212,6 +236,24 @@ code { font-family: var(--f-mono); font-size: .8em; background: var(--sunk); bor
         <button class="btn" id="qEasy" type="button">かんたん（4か所タップ・無料）</button>
         <a class="btn" id="qClaude" href="https://claude.ai/artifact/AAp4mvuTAf4dRHuNzHtQem" target="_blank" rel="noopener" hidden>claude.ai の自動版を開く（追加料金なし）</a>
       </div>
+      <details class="adv" id="qGuide" open>
+        <summary>4か所の場所（見本）</summary>
+        <div class="guideAll">
+          <figure class="guide">
+            <div class="guidebtn" style="cursor: default"><svg id="guideAllSvg" viewBox="0 0 520 680" aria-hidden="true"></svg></div>
+            <figcaption class="guidecap">見本の耳（右耳・顔は右側）</figcaption>
+          </figure>
+          <div>
+            <ol>
+              <li><b>1</b><span>耳のいちばん上（ふちの外側）</span></li>
+              <li><b>2</b><span>耳たぶのいちばん下</span></li>
+              <li><b>3</b><span>耳の穴の中心（黒い穴の真ん中）</span></li>
+              <li><b>4</b><span>耳のいちばん後ろ（顔と反対側）のふちの外側</span></li>
+            </ol>
+            <p class="cap">この順にタップします。顔がまっすぐ立って、耳が縦に写っている写真が向いています（傾いていると大きさがずれます）。髪が耳にかかると、ふちが見えず形がずれるので、耳にかけて撮ってください。</p>
+          </div>
+        </div>
+      </details>
       <div class="fields">
         <label class="field">耳の長さ（上端〜耳たぶの下端）<span class="in"><input id="qEarMm" type="number" min="40" max="90" step="0.5" value="65"><span class="unit">mm</span></span></label>
         <label class="field">ノッチのQ<span class="in"><select id="qQ"><option value="16">Q 16（鋭い・いまの設定）</option><option value="8">Q 8（なだらか）</option></select></span></label>
@@ -898,6 +940,47 @@ if (typeof module !== 'undefined') module.exports = HRTFIO;
   };
   const MODES = ['scale', 'canal', 'c1', 'c2', 'c3'];
 
+  // ---------- sample figure: the demo ear with numbered points; the step being asked for is lit ----------
+  let easy = 0;                                   // easy mode: 0 = off, 1..4 = the tap that is awaited
+  let DEMO_URL = '';
+  const GPTS = (() => { const g = DemoEar.geom, c = g.canal; return [g.scale[0], g.scale[1], c, { x: c.x - 32 * DemoEar.S, y: c.y }]; })();   // top, bottom, canal, rear rim
+  const gpath = (pts) => { const f = (v) => v.toFixed(1); let d = 'M' + f(pts[0].x) + ' ' + f(pts[0].y); for (let i = 1; i < pts.length - 1; i++) d += ' Q' + f(pts[i].x) + ' ' + f(pts[i].y) + ' ' + f((pts[i].x + pts[i + 1].x) / 2) + ' ' + f((pts[i].y + pts[i + 1].y) / 2); const l = pts[pts.length - 1]; return d + ' L' + f(l.x) + ' ' + f(l.y); };
+  function guideOverlay(key) {
+    const g = DemoEar.geom, P = GPTS, COL = ['var(--c1)', 'var(--c2)', 'var(--c3)'];
+    const dash = (x1, y1, x2, y2) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#fff" stroke-width="5" stroke-dasharray="16 12" opacity=".85"/>`;
+    const lines = dash(P[0].x, P[0].y, P[1].x, P[1].y) + dash(24, P[2].y, 500, P[2].y);
+    const mk = (i, st) => {                       // st: now (lit, pulsing) | done | todo | all (plain yellow)
+      const p = { x: P[i].x, y: Math.max(48, Math.min(DemoEar.H - 48, P[i].y)) }, lit = st === 'now' || st === 'all', op = st === 'todo' ? .55 : 1;   // kept inside the picture
+      return (st === 'now' ? `<circle class="ring" cx="${p.x}" cy="${p.y}" r="44" fill="none" stroke="#ffd84a" stroke-width="8"/>` : '') +
+        `<circle cx="${p.x}" cy="${p.y}" r="${st === 'now' ? 42 : 36}" fill="${lit ? '#ffd84a' : '#fff'}" stroke="#111" stroke-width="5" opacity="${op}"/>` +
+        `<text x="${p.x}" y="${p.y}" text-anchor="middle" dominant-baseline="central" font-size="${st === 'now' ? 56 : 48}" font-weight="700" font-family="IBM Plex Mono, monospace" fill="#111" opacity="${op}">${i + 1}</text>`;
+    };
+    if (key === 'all') return lines + [0, 1, 2, 3].map((i) => mk(i, 'all')).join('');
+    if (/^e[1-4]$/.test(key)) { const n = +key[1] - 1; return lines + [0, 1, 2, 3].map((i) => mk(i, i < n ? 'done' : i === n ? 'now' : 'todo')).join(''); }
+    const part = (ci) => {
+      const pts = g.contours[ci], on = key === 'c' + (ci + 1);
+      return `<path d="${gpath(pts)}" fill="none" stroke-linecap="round" style="stroke:${COL[ci]}" stroke-width="${on ? 14 : 8}" opacity="${on ? 1 : .4}"/>` +
+        (on ? pts.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="10" style="fill:${COL[ci]}" stroke="#fff" stroke-width="3"/>`).join('') : '');
+    };
+    const c = P[2];
+    const canal = key === 'canal'
+      ? `<circle class="ring" cx="${c.x}" cy="${c.y}" r="44" fill="none" style="stroke:var(--canal)" stroke-width="8"/><circle cx="${c.x}" cy="${c.y}" r="24" style="fill:var(--canal)" stroke="#fff" stroke-width="5"/>`
+      : `<circle cx="${c.x}" cy="${c.y}" r="12" style="fill:var(--canal)" stroke="#fff" stroke-width="3" opacity=".8"/>`;
+    const scale = key === 'scale' ? dash(P[0].x, P[0].y, P[1].x, P[1].y) + mk(0, 'now') + mk(1, 'now') : '';
+    return part(0) + part(1) + part(2) + canal + scale;
+  }
+  function guideInit(svg) {
+    if (!svg) return null;
+    if (!svg.dataset.ready) {
+      if (!DEMO_URL) { try { DEMO_URL = DemoEar.dataURL(); } catch (e) { return null; } }
+      svg.innerHTML = `<image href="${DEMO_URL}" width="${DemoEar.W}" height="${DemoEar.H}"/><g class="ov"></g>`; svg.dataset.ready = '1';
+    }
+    return svg.querySelector('.ov');
+  }
+  function guideDraw(key) { const ov = guideInit($('guideSvg')); if (ov) ov.innerHTML = guideOverlay(key || (easy ? 'e' + easy : S.mode)); }
+  { const ov = guideInit($('guideAllSvg')); if (ov) ov.innerHTML = guideOverlay('all'); }
+  $('guideBtn').addEventListener('click', () => { const b = $('hintRow').classList.toggle('big'); $('guideBtn').setAttribute('aria-pressed', String(b)); });
+
   const blankEar = (front) => ({ img: null, demo: false, name: '', scale: [], canal: null, contours: [[], [], []], front, tilt: 0, scaleMm: 65, table: null, frontAuto: true, norm: null, placeholder: false });
   const S = {
     ears: { R: blankEar(1), L: blankEar(-1) }, ear: 'R',
@@ -1154,7 +1237,8 @@ if (typeof module !== 'undefined') module.exports = HRTFIO;
   function setMode(m) {
     S.mode = m;
     document.querySelectorAll('.mode').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === m));
-    $('hint').innerHTML = HINTS[m] + ' <em>点はドラッグで動かせます。</em>';
+    $('hint').innerHTML = HINTS[m] + ' <em>点はドラッグで動かせます。左の見本の、色のついた線や丸と同じ場所です。</em>';
+    guideDraw();
     drawBench();
   }
   $('modes').addEventListener('click', (e) => { const b = e.target.closest('.mode'); if (b) setMode(b.dataset.mode); });
@@ -1854,14 +1938,13 @@ if (typeof module !== 'undefined') module.exports = HRTFIO;
   $('batchSave').addEventListener('click', batchExport);
 
   // ---------- easy: four taps, an average ear shape stretched to this ear's size (no AI, no cost) ----------
-  let easy = 0;                                   // 0 = off, 1..4 = the tap that is awaited
-  const EASY = ['① 耳のいちばん上（ふちの外側）をタップ', '② 耳たぶのいちばん下をタップ', '③ 耳の穴の中心をタップ', '④ 耳のいちばん後ろ（顔と反対側）のふちの外側をタップ'];
+  const EASY =['① 耳のいちばん上（ふちの外側）をタップ', '② 耳たぶのいちばん下をタップ', '③ 耳の穴の中心をタップ', '④ 耳のいちばん後ろ（顔と反対側）のふちの外側をタップ'];
   function easyStart() {
     const e = E();
     if (!e.img || e.demo || e.placeholder) { qMsg('先に耳の写真を選ぶか、貼り付けてください。'); return; }
     e.scale = []; e.canal = null; e.contours = [[], [], []]; e.norm = null; easy = 1;
     ZOOM = 1; setZoom(1); setMode('scale'); drawBench(); scheduleRecompute();
-    $('hint').textContent = EASY[0]; qMsg('左の写真を4か所タップします： ' + EASY[0]);
+    easyHint(0); qMsg('写真を4か所タップします： ' + EASY[0]);
     try { $('benchWrap').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (x) {}
   }
   function easyTap(p) {
@@ -1870,7 +1953,7 @@ if (typeof module !== 'undefined') module.exports = HRTFIO;
     else {
       const top = e.scale[0], bot = e.scale[1], c = e.canal, su = (c.y - top.y) / 37, sd = (bot.y - c.y) / 28, sb = Math.abs(p.x - c.x) / 32, dir = p.x > c.x ? 1 : -1;
       easy = 0;
-      if (!(su > 0 && sd > 0 && sb > 0)) { $('hint').textContent = '位置が合いませんでした（上→下→穴→後ろ の順に）。もう一度「かんたん」を押してください。'; qMsg($('hint').textContent); e.scale = []; e.canal = null; drawBench(); return; }
+      if (!(su > 0 && sd > 0 && sb > 0)) { $('hint').textContent = '位置が合いませんでした（上→下→穴→後ろ の順に）。もう一度「かんたん」を押してください。'; qMsg($('hint').textContent); e.scale = []; e.canal = null; guideDraw(); drawBench(); return; }
       // the average shape (radii in mm around the ear canal: 0 deg = up, 90 deg = back), stretched up / down / back separately
       const T = DemoEar.tables, at = (tab, g) => { for (let i = 0; i + 1 < tab.length; i++) if (g >= tab[i][0] && g <= tab[i + 1][0]) return tab[i][1] + (g - tab[i][0]) / (tab[i + 1][0] - tab[i][0]) * (tab[i + 1][1] - tab[i][1]); return tab[tab.length - 1][1]; };
       const line = (tab, step) => { const o = []; for (let g = tab[0][0]; g <= tab[tab.length - 1][0] + 1e-9; g += step) { const r = at(tab, g), t = g * Math.PI / 180, cg = Math.cos(t); o.push({ x: c.x + dir * Math.sin(t) * r * sb, y: c.y - cg * r * (cg >= 0 ? su : sd) }); } return o; };
@@ -1880,8 +1963,9 @@ if (typeof module !== 'undefined') module.exports = HRTFIO;
       $('hint').innerHTML = '平均的な耳の形を、あなたの耳の大きさに合わせて置きました。<em>写真の線とずれている点はドラッグで直すと、より自分の耳に近づきます。</em>';
       qMsg('置きました。線が写真のふちとずれていたら、点をドラッグで直してください。'); return;
     }
-    easy += 1; drawBench(); $('hint').textContent = EASY[easy - 1]; qMsg(EASY[easy - 1]);
+    easy += 1; drawBench(); easyHint(easy - 1); qMsg(EASY[easy - 1]);
   }
+  function easyHint(i) { $('hint').innerHTML = EASY[i] + ' <em>左の見本で黄色く光っている丸と同じ場所です。</em>'; guideDraw('e' + (i + 1)); }
   $('qEasy').addEventListener('click', easyStart);
 
   // ---------- quick: paste a photo -> AI trace -> HRTF -> link that opens ExoSpace with it ----------
