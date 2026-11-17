@@ -1,13 +1,13 @@
 // the page itself: network first (an updated app arrives at the next visit), cache when offline; other files: cache first.
 // The app works offline after the first visit (the fonts fall back to system fonts)
-const V = 'exospace-mobile-64af0f96803c';
-const FILES = ["./","./index.html","./ear.html","./manifest.webmanifest","./icon.svg","./icon-180.png","./icon-192.png","./icon-512.png"];
+const V = 'exospace-mobile-31f383b95682';
+const FILES = ["./","./index.html","./ear.html","./n1n2.html","./manifest.webmanifest","./icon.svg","./icon-180.png","./icon-192.png","./icon-512.png"];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(V).then((c) => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== V).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   if (e.request.mode === 'navigate') {
-    const page = //ear.html$/.test(new URL(e.request.url).pathname) ? './ear.html' : './index.html';   // each page under its own name
+    const pn = new URL(e.request.url).pathname, page = //ear.html$/.test(pn) ? './ear.html' : //n1n2.html$/.test(pn) ? './n1n2.html' : './index.html';   // each page under its own name
     e.respondWith(fetch(e.request).then((r) => { if (r.ok) { const cp = r.clone(); caches.open(V).then((c) => c.put(page, cp)); } return r; })
       .catch(() => caches.match(page)));
     return;

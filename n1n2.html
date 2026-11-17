@@ -1,0 +1,1172 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1514">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ExoSpace">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>:root{color-scheme:light dark;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}</style>
+</head><body>
+<title>N1・N2 聴き合わせ</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+JP:wght@400;500;700&display=swap">
+<style>
+/* Layout: one reading column of three work cards in the order they are used (準備 → 聴き比べ → 結果), then the evidence. */
+:root {
+  --bg: #f2f5f4; --surface: #ffffff; --sunk: #e7eceb; --ink: #15201d; --muted: #566661; --line: #d0d9d6;
+  --accent: #0f6b5c; --accent-ink: #ffffff; --accent-soft: #d6ebe6; --n1: #a8530a; --n2: #6741b3; --warn: #9a3b12;
+  --f-body: "IBM Plex Sans JP", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1514; --surface: #172020; --sunk: #0b100f; --ink: #e2ebe8; --muted: #93a49e; --line: #2a3633;
+  --accent: #46b8a1; --accent-ink: #04201a; --accent-soft: #163a33; --n1: #f0a052; --n2: #b49cf2; --warn: #f08b5e; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f1514; --surface: #172020; --sunk: #0b100f; --ink: #e2ebe8; --muted: #93a49e; --line: #2a3633;
+  --accent: #46b8a1; --accent-ink: #04201a; --accent-soft: #163a33; --n1: #f0a052; --n2: #b49cf2; --warn: #f08b5e; color-scheme: dark; }
+
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.7;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 56px; }
+main { max-width: 760px; margin: 0 auto; display: grid; gap: 18px; }
+h1 { font-size: 1.75rem; line-height: 1.25; margin: 0; letter-spacing: .01em; text-wrap: balance; }
+h2 { font-size: 1.12rem; margin: 0; display: flex; align-items: baseline; gap: 10px; text-wrap: balance; }
+h2 .no { font-family: var(--f-mono); font-size: .8rem; color: var(--accent); border: 1.5px solid var(--accent); border-radius: 999px; padding: 0 8px; line-height: 1.6; }
+p { margin: 0; }
+.lede { color: var(--muted); max-width: 62ch; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 14px; min-width: 0; }
+.cap { font-size: .84rem; color: var(--muted); }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+label.f { display: grid; gap: 4px; font-size: .84rem; color: var(--muted); min-width: 0; }
+input[type="number"], input[type="url"], select { font: inherit; font-size: .95rem; color: var(--ink); background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; width: 100%; box-sizing: border-box; min-width: 0; }
+input[type="number"] { font-family: var(--f-mono); }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.btn.back { align-self: flex-start; justify-self: start; width: fit-content; margin-bottom: 8px; min-height: 36px; padding: 6px 12px; font-size: .88rem; }
+.btn { font: inherit; font-size: .95rem; font-weight: 500; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 9px 16px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; min-height: 42px; box-sizing: border-box; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.msg { font-size: .86rem; color: var(--muted); min-height: 1.4em; }
+.msg.warn { color: var(--warn); }
+
+/* listening card */
+.status { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: .84rem; color: var(--muted); }
+.status b { color: var(--ink); font-weight: 600; }
+.progress { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; flex: 1 1 160px; min-width: 120px; }
+.progress i { height: 6px; border-radius: 3px; background: var(--sunk); border: 1px solid var(--line); }
+.progress i.done { background: var(--accent); border-color: var(--accent); }
+.progress i.now { background: var(--accent-soft); border-color: var(--accent); }
+.question { font-size: 1.3rem; font-weight: 700; line-height: 1.4; text-wrap: balance; }
+.ab { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.abBtn { font: inherit; border: 2px solid var(--line); background: var(--sunk); color: var(--ink); border-radius: 12px; padding: 14px 10px; cursor: pointer; display: grid; gap: 2px; justify-items: center; }
+.abBtn .big { font-family: var(--f-mono); font-size: 1.9rem; font-weight: 600; line-height: 1.1; }
+.abBtn .sub { font-size: .78rem; color: var(--muted); }
+.abBtn.playing { border-color: var(--accent); background: var(--accent-soft); }
+.abBtn:disabled { opacity: .55; cursor: default; }
+.abBtn:not(:disabled):hover { border-color: var(--accent); }
+
+/* result */
+.vals { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.val { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; min-width: 0; }
+.val .k { font-size: .8rem; color: var(--muted); letter-spacing: .04em; }
+.val .v { font-family: var(--f-mono); font-size: 1.55rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.val.n1 .v { color: var(--n1); } .val.n2 .v { color: var(--n2); }
+.val .d { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.slider { display: grid; grid-template-columns: 2.6em minmax(0, 1fr) 6.2em; gap: 10px; align-items: center; font-size: .86rem; }
+.slider output { font-family: var(--f-mono); text-align: right; font-variant-numeric: tabular-nums; }
+.plot { width: 100%; max-width: 100%; height: 220px; display: block; background: var(--sunk); border-radius: 10px; border: 1px solid var(--line); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .78rem; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--accent); vertical-align: middle; margin-right: 6px; }
+.legend span.raw::before { border-top-style: dashed; border-color: var(--muted); }
+textarea { width: 100%; box-sizing: border-box; min-height: 110px; font-family: var(--f-mono); font-size: .72rem; color: var(--ink); background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+details > summary { cursor: pointer; font-size: .9rem; }
+ul.ev { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; font-size: .88rem; }
+ul.ev a { color: var(--accent); }
+.mono { font-family: var(--f-mono); }
+.photo { display: grid; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.photoWrap { border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: var(--sunk); max-width: 520px; }
+.photoWrap canvas { display: block; width: 100%; height: auto; touch-action: none; cursor: crosshair; }
+label.btn[for] { user-select: none; }
+.tools { display: grid; gap: 8px; max-width: 520px; }
+.tools .row { justify-content: space-between; }
+.btn.nb { min-width: 46px; justify-content: center; padding-inline: 0; font-size: 1.1rem; }
+.sel { font-size: .84rem; color: var(--muted); flex: 1 1 12em; min-width: 0; }
+.sel b { color: var(--ink); }
+.nudge { display: inline-flex; gap: 6px; }
+.ext { display: grid; gap: 8px; padding: 12px; border: 1px dashed var(--line); border-radius: 10px; background: var(--sunk); }
+.extImg { display: block; width: 100%; max-width: 360px; height: auto; border-radius: 8px; border: 1px solid var(--line); }
+.ext textarea { background: var(--surface); min-height: 80px; }
+
+/* step flow */
+header.top { display: grid; gap: 10px; }
+.stepper { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.stepBtn { font: inherit; font-size: .84rem; width: 100%; display: flex; align-items: center; gap: 6px; justify-content: center; padding: 8px 6px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); cursor: pointer; min-height: 40px; }
+.stepBtn span { font-family: var(--f-mono); font-size: .78rem; width: 1.6em; height: 1.6em; border-radius: 50%; display: inline-grid; place-items: center; border: 1.5px solid currentColor; }
+.stepper li.now .stepBtn { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.stepper li.done .stepBtn { color: var(--accent); border-color: var(--accent); }
+.stepBtn:disabled { opacity: .45; cursor: default; }
+.btn.big { font-size: 1.05rem; padding: 12px 22px; min-height: 50px; }
+.btn.small { min-height: 36px; padding: 6px 12px; font-size: .86rem; }
+button.link { font: inherit; background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; }
+.tips { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 14px; align-items: center; }
+.tipFig, .guideFig { margin: 0; min-width: 0; }
+.tipFig svg, .guideFig svg { width: 100%; height: auto; display: block; border-radius: 10px; border: 1px solid var(--line); background: var(--sunk); }
+.tipFig figcaption, .guideFig figcaption { font-size: .72rem; color: var(--muted); margin-top: 3px; text-align: center; }
+.tipList { margin: 0; padding-left: 1.1em; display: grid; gap: 6px; font-size: .92rem; }
+.ptHead { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.count { font-family: var(--f-mono); font-size: .9rem; color: var(--muted); }
+.ptGuide { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 14px; align-items: center; }
+.gTitle { font-size: 1.25rem; font-weight: 700; line-height: 1.35; text-wrap: balance; }
+.gBody { font-size: .92rem; color: var(--muted); margin-top: 4px; }
+.row.nav { justify-content: space-between; }
+.row.nav #ptNext { flex: 1 1 12em; justify-content: center; }
+.zoomRow .cap { flex: 1 1 14em; min-width: 0; }
+details.help { border-top: 1px solid var(--line); padding-top: 10px; display: grid; gap: 10px; }
+details.help[open] { gap: 10px; }
+details .inner { display: grid; gap: 12px; margin-top: 12px; }
+.verdict { font-size: .95rem; }
+.verdict.warn { color: var(--warn); }
+.next { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+details.card > summary { font-weight: 600; }
+@media (max-width: 420px) { .tips { grid-template-columns: 96px minmax(0, 1fr); } .ptGuide { grid-template-columns: 92px minmax(0, 1fr); } .gTitle { font-size: 1.12rem; } }
+@media (max-width: 420px) { .question { font-size: 1.15rem; } .abBtn .big { font-size: 1.6rem; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<main>
+  <header class="top">
+    <h1>N1・N2 聴き合わせ</h1>
+    <p class="lede">耳の写真から、ExoSpace 用の HRTF（耳の形に合わせた音の特性）を作ります。写真を選んで、点を5つ確かめるだけです。</p>
+    <ol class="stepper" id="stepper" aria-label="手順">
+      <li data-s="photo"><button type="button" class="stepBtn"><span>1</span>写真</button></li>
+      <li data-s="points"><button type="button" class="stepBtn"><span>2</span>点を確認</button></li>
+      <li data-s="result"><button type="button" class="stepBtn"><span>3</span>完成</button></li>
+    </ol>
+  </header>
+
+  <section class="card" id="sPhoto" aria-labelledby="h-photo">
+    <h2 id="h-photo">耳の写真を選ぶ</h2>
+    <div class="tips">
+      <figure class="tipFig"><svg id="tipSvg" viewBox="0 0 520 680" aria-hidden="true"></svg><figcaption>こんなふうに写っていれば十分です</figcaption></figure>
+      <ul class="tipList">
+        <li><b>真横から</b>、耳と同じ高さで撮ります。</li>
+        <li><b>髪を耳にかけて</b>、耳のふちが全部見えるようにします。</li>
+        <li><b>近くで</b>、耳が大きく写るようにします。ピントは耳に。</li>
+        <li>誰かに撮ってもらうと楽です。自撮りなら、鏡ではなくカメラで。</li>
+      </ul>
+    </div>
+    <div class="row">
+      <label class="btn primary big" for="photoIn" id="photoLbl" tabindex="0">写真を選ぶ</label>
+      <input type="file" id="photoIn" accept="image/jpeg,image/png,image/webp" hidden>
+    </div>
+    <p class="cap" id="photoHint">写真を選ぶと、次に点を5つ確かめます。</p>
+    <p class="cap" id="prevRes" hidden>前回作った結果があります。<button class="link" id="showPrev" type="button">前回の結果を見る</button></p>
+    <p class="cap">写真がなくても、<button class="link" id="goListenNoPhoto" type="button">ヘッドホンで聴いて決める</button>こともできます（3分）。</p>
+    <p class="cap">前に保存した HRTF ファイル（.txt）があれば、<button class="link" id="loadFile" type="button">ここから読み込めます</button>。</p>
+    <input type="file" id="fileIn" accept=".txt,text/plain" hidden>
+    <p class="msg" id="fileMsg" role="status"></p>
+  </section>
+
+  <section class="card" id="sPoints" aria-labelledby="h-points" hidden>
+    <div class="ptHead"><h2 id="h-points">点を確かめる</h2><span class="count" id="ptCount">1 / 5</span></div>
+    <div class="ptGuide">
+      <figure class="guideFig"><svg id="guideSvg" viewBox="0 0 520 680" aria-hidden="true"></svg><figcaption>見本</figcaption></figure>
+      <div class="guideText"><p class="gTitle" id="gTitle">耳の穴の真ん中</p><p class="gBody" id="gBody"></p></div>
+    </div>
+    <div class="photoWrap" id="photoWrap"><canvas id="photoCv" aria-label="耳の写真と点"></canvas></div>
+    <p class="msg" id="photoMsg"></p>
+    <div class="row nav">
+      <button class="btn" id="ptBack" type="button">戻る</button>
+      <span class="nudge" aria-label="点を少しずつ動かす">
+        <button class="btn nb" id="nudgeL" type="button" aria-label="点を左へ">←</button>
+        <button class="btn nb" id="nudgeU" type="button" aria-label="点を上へ">↑</button>
+        <button class="btn nb" id="nudgeD" type="button" aria-label="点を下へ">↓</button>
+        <button class="btn nb" id="nudgeR" type="button" aria-label="点を右へ">→</button>
+      </span>
+      <button class="btn primary" id="ptNext" type="button">合っている・次へ</button>
+    </div>
+    <div class="row zoomRow">
+      <button class="btn small" id="zoomFit" type="button">全体</button>
+      <button class="btn small nb" id="zoomIn" type="button" aria-label="拡大する">＋</button>
+      <button class="btn small nb" id="zoomOut" type="button" aria-label="縮小する">－</button>
+      <span class="cap">点は指で動かせます（拡大鏡が出ます）。写真をタップすると、点がその場所に移ります。矢印は 0.25 mm ずつ。</span>
+    </div>
+    <details class="help" id="helpBox">
+      <summary>うまくいかないとき</summary>
+      <div class="row">
+        <button class="btn" id="aiBtn" type="button" hidden>AI に置き直してもらう</button>
+        <button class="btn" id="aiStop" type="button" hidden>止める</button>
+        <button class="btn" id="tapBtn" type="button">点を消して、自分で置く</button>
+        <button class="btn" id="extBtn" type="button" aria-expanded="false">ChatGPT・Gemini で読み取る</button>
+      </div>
+      <div class="ext" id="extBox" hidden>
+        <p class="cap"><b>1.</b> 上の写真で、耳の真ん中をタップします。耳のまわりだけを切り抜いて、目盛りを描きます。耳が大きく写るほど、AI の点が正確になります。</p>
+        <div class="row">
+          <label class="f" for="extSize" style="min-width:12em">切り抜く大きさ
+            <select id="extSize"><option value="0.3">小さめ</option><option value="0.45" selected>ふつう</option><option value="0.65">大きめ</option><option value="0">切り抜かない</option></select>
+          </label>
+        </div>
+        <img id="extImg" class="extImg" alt="AI に添付する、目盛りを描いた耳の画像">
+        <p class="cap"><b>2.</b> この画像を保存します（「画像を保存」か、画像の長押し・右クリック）。AI には、必ずこの画像を添付してください。元の写真だと、点の位置が合いません。</p>
+        <div class="row"><button class="btn" id="extSave" type="button" hidden>画像を保存</button></div>
+        <p class="cap"><b>3.</b> 頼む文をコピーし、ChatGPT か Gemini に画像を添付して、貼り付けて送ります。無料プランで使えます。</p>
+        <div class="row">
+          <button class="btn" id="extCopy" type="button">頼む文をコピー</button>
+          <a class="btn" href="https://chatgpt.com/" target="_blank" rel="noopener">ChatGPT を開く</a>
+          <a class="btn" href="https://gemini.google.com/app" target="_blank" rel="noopener">Gemini を開く</a>
+        </div>
+        <details><summary>頼む文を見る</summary><textarea id="extPrompt" readonly spellcheck="false" aria-label="ChatGPT・Gemini に送る文"></textarea></details>
+        <p class="cap"><b>4.</b> 返ってきた答え（<span class="mono">{</span> から <span class="mono">}</span> まで）をコピーして、ここに貼り付けます。</p>
+        <textarea id="extAns" spellcheck="false" placeholder='{"canal":{"x":612,"y":498}, …}' aria-label="AI の答え"></textarea>
+        <div class="row"><button class="btn primary" id="extRead" type="button">答えを読み込む</button></div>
+      </div>
+    </details>
+  </section>
+
+  <section class="card" id="sResult" aria-labelledby="h-result" hidden>
+    <h2 id="h-result">できあがり</h2>
+    <div class="vals">
+      <div class="val n1"><span class="k">N1（1つ目の谷）</span><span class="v" id="n1Val">—</span><span class="d" id="n1Diff"></span></div>
+      <div class="val n2"><span class="k">N2（2つ目の谷）</span><span class="v" id="n2Val">—</span><span class="d" id="n2Diff"></span></div>
+    </div>
+    <p class="verdict" id="verdict"></p>
+    <div class="row"><a class="btn primary big" id="sendLink" href="#" target="_blank" rel="noopener">ExoSpace で使う</a></div>
+    <div class="row">
+      <button class="btn big" id="saveBtn" type="button">ファイルに保存（.txt）</button>
+      <button class="btn big" id="copyLinkBtn" type="button">別の端末に送るリンクをコピー</button>
+    </div>
+    <textarea id="linkText" readonly spellcheck="false" aria-label="ExoSpace を開くリンク" hidden></textarea>
+    <p class="cap" id="saveNote">パソコンなど別の端末で使うときは、ファイルを送って ExoSpace の「HRTFファイルを選ぶ」で選ぶか、リンクを自分にメールや LINE で送って、その端末で開いてください。ファイルはこの画面にも読み込み直せます。</p>
+    <p class="msg" id="outMsg"></p>
+    <div class="next">
+      <p><b>もっと合わせたいときは</b>、ヘッドホンで聴き比べて仕上げます（12回・約3分）。</p>
+      <div class="row">
+        <button class="btn" id="goListen" type="button">聴いて仕上げる</button>
+        <button class="btn" id="goPoints" type="button">写真の点を直す</button>
+        <button class="btn" id="goPhoto" type="button">別の写真で作り直す</button>
+      </div>
+    </div>
+    <details>
+      <summary>細かく調整する・中身を見る</summary>
+      <div class="inner">
+        <div class="slider"><span style="color:var(--n1)">N1</span><input type="range" id="n1Sl" min="0" max="1000" step="1" aria-label="N1 の周波数"><output id="n1Out">—</output></div>
+        <div class="slider"><span style="color:var(--n2)">N2</span><input type="range" id="n2Sl" min="0" max="1000" step="1" aria-label="N2 の周波数"><output id="n2Out">—</output></div>
+        <div class="row">
+          <button class="btn" id="playNow" type="button">この値で鳴らす</button>
+          <button class="btn" id="cmpInit" type="button">最初の値と比べる</button>
+        </div>
+        <canvas class="plot" id="plot" aria-label="ExoSpace に渡す特性（スピーカー ±30°、近い側の耳）"></canvas>
+        <div class="legend"><span>ExoSpace で掛かる形</span><span class="raw">ファイルの値</span><span style="color:var(--n1)">｜N1</span><span style="color:var(--n2)">｜N2</span></div>
+        <label class="f" for="appUrl">ExoSpace の場所
+          <input type="url" id="appUrl" value="https://menya-oasis.github.io/exospace-audio/" spellcheck="false">
+        </label>
+        <div class="row"><button class="btn" id="copyBtn" type="button">GraphicEQ をコピー</button></div>
+        <textarea id="eqText" readonly spellcheck="false" aria-label="GraphicEQ のテキスト"></textarea>
+      </div>
+    </details>
+  </section>
+
+  <section class="card" id="sListen" aria-labelledby="h-listen" hidden>
+    <h2 id="h-listen">聴いて仕上げる</h2>
+    <p class="cap">ExoSpace で使うのと同じヘッドホンをつけます。まず「試しに鳴らす」で、小さめの音量に合わせます。</p>
+    <div class="slider"><span>音量</span><input type="range" id="vol" min="-42" max="-12" step="1" value="-26" aria-label="音量"><output id="volOut">-26 dB</output></div>
+    <div class="row"><button class="btn" id="tryBtn" type="button">試しに鳴らす</button></div>
+    <p class="msg" id="prepMsg"></p>
+    <div class="status"><span id="stepLabel"><b>まだ始めていません</b></span><div class="progress" id="progress" aria-hidden="true"></div></div>
+    <p class="question">正面・目の高さに聞こえたのは、どっち？</p>
+    <p class="cap">A と B の順に、ザーッという音が鳴ります。上にずれる、後ろに回る、頭の中にこもる、のではないほうを選びます。迷ったら「同じ」で構いません。</p>
+    <div class="ab">
+      <button class="abBtn" id="aBtn" type="button" disabled><span class="big">A</span><span class="sub">先に鳴った音</span></button>
+      <button class="abBtn" id="bBtn" type="button" disabled><span class="big">B</span><span class="sub">あとに鳴った音</span></button>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="startBtn" type="button">聴き比べを始める</button>
+      <button class="btn" id="tieBtn" type="button" disabled>同じ・わからない</button>
+      <button class="btn" id="againBtn" type="button" disabled>もう一度聴く</button>
+    </div>
+    <p class="msg" id="listenMsg"></p>
+  </section>
+
+  <details class="card adv" id="advBox">
+    <summary>詳しい設定</summary>
+    <div class="inner">
+      <div class="fields">
+        <label class="f" for="earMm">耳の長さ（耳のいちばん上〜耳たぶの下・mm）
+          <input type="number" id="earMm" inputmode="decimal" min="40" max="90" step="0.5" value="65">
+        </label>
+        <label class="f" for="n1Init">出発点の N1（Hz）
+          <input type="number" id="n1Init" inputmode="numeric" min="3000" max="16000" step="10" placeholder="7395">
+        </label>
+        <label class="f" for="n2Init">出発点の N2（Hz）
+          <input type="number" id="n2Init" inputmode="numeric" min="5000" max="18000" step="10" placeholder="10553">
+        </label>
+        <label class="f" for="qSel">谷の鋭さ（Q）
+          <select id="qSel"><option value="4">4（幅広い）</option><option value="8" selected>8</option><option value="16">16（鋭い）</option></select>
+        </label>
+        <label class="f" for="modeSel">ExoSpace の HRTF の掛け方
+          <select id="modeSel"><option value="keep" selected>音色を保つ（初期設定）</option><option value="pc">PC版と同じ</option></select>
+        </label>
+      </div>
+      <p class="cap">耳の長さは、定規で測ると写真の値が正確になります。わからなければ 65 mm のままで構いません。出発点は写真から自動で入ります。掛け方は、ExoSpace の設定と同じものにすると、聴き比べの音と ExoSpace の音がそろいます。</p>
+      <div class="row"><button class="btn" id="checkBtn" type="button">聞き分けチェック</button></div>
+      <p class="msg" id="checkMsg"></p>
+    </div>
+  </details>
+
+  <details class="card" id="evBox">
+    <summary>根拠と限界</summary>
+    <ul class="ev">
+      <li>P1（約4 kHz の山）と N1・N2 だけで作った HRTF で、実測とほぼ同じ上下の定位が得られる（<a href="https://manuscript.isc.ac/Inventory/10/1170946.htm" target="_blank" rel="noopener">Iida ほか 2007</a>）。P1 は方向で変わらないので、拡散音場補正をすると消えます。ここでは N1・N2 だけを動かします。</li>
+      <li>候補の範囲は、日本人成人54耳の正面の値（N1 5719–9563 Hz、N2 8250–13500 Hz）。刻みは聞き分けられる差（0.1–0.2 オクターブ）の中ほどの 0.15 オクターブで、各6段階（<a href="https://cit.repo.nii.ac.jp/record/249/files/%E5%8F%97%E8%81%B4%E8%80%85%E3%81%AE%E9%A0%AD%E9%83%A8%E5%BD%A2%E7%8A%B6%E3%81%AB%E5%9F%BA%E3%81%A5%E3%81%84%E3%81%9F%E9%A0%AD%E9%83%A8%E4%BC%9D%E9%81%94%E9%96%A2%E6%95%B0%E3%81%AE%E5%80%8B%E4%BA%BA%E5%8C%96%E3%81%AB%E9%96%A2%E3%81%99%E3%82%8B%E7%A0%94%E7%A9%B6.pdf" target="_blank" rel="noopener">千葉工大の学位論文</a>）。</li>
+      <li>写真からの値は、耳の穴から真後ろ（同じ高さ）の耳輪・対耳輪までの距離 d から、反射による谷の式 f = c / (2d)（<a href="https://avanzini.di.unimi.it/downloads/publications/spagnol_dafx15a.pdf" target="_blank" rel="noopener">Spagnol &amp; Avanzini 2015</a>）で出します。耳の穴の点が 2 mm ずれると約 0.1 オクターブ変わります。耳輪のどの縁を使うかは文献でも決まっておらず、ここでは耳形HRTFラボと同じ「内側の縁」です。写真の値は出発点で、聴き比べは写真の値を中心に ±0.375 オクターブで仕上げます。</li>
+      <li>聴き比べで選ぶ結果は毎回同じにはならず、1回の勝ち抜きは偶然に左右される（<a href="https://core.ac.uk/works/7183578" target="_blank" rel="noopener">ICAD 2008</a>、<a href="https://www.aes.org/events/140/papers/?ID=4879" target="_blank" rel="noopener">Andreopoulou &amp; Katz 2016</a>）。そのため各値を2周測り、2つの答えの真ん中（対数）を採ります。</li>
+      <li>好みで選んだ HRTF が、定位で最良とは限らない（<a href="https://zenodo.org/records/6797816/files/24.pdf" target="_blank" rel="noopener">Oehler ほか 2022</a>）。問いを「正面・目の高さに聞こえるか」にしているのはこのためです。</li>
+      <li>谷の深さ（N1 −14 dB、N2 −10 dB）と Q は、文献でも推定法がない仮の値です。頭の影は球の頭（半径 90 mm、Brown &amp; Duda の近似）で入れています。結果が合っているかの最終判断は、ExoSpace で聴いて決めてください。</li>
+    </ul>
+  </details>
+</main>
+
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  // served next to ExoSpace (GitHub Pages / the installed app) rather than inside claude.ai: hand over to the app on the same site, same tab
+  const STANDALONE = !/(^|\.)claude\.(ai|site)$|claudeusercontent/.test(location.hostname) && !window.claude && /^https?:$/.test(location.protocol);
+  if (STANDALONE) {
+    const b = document.createElement('a'); b.href = './'; b.className = 'btn back'; b.textContent = '← ExoSpace に戻る'; document.querySelector('.top').prepend(b);
+    $('sendLink').removeAttribute('target');
+    const old = document.createElement('p'); old.className = 'cap'; old.innerHTML = '前の「耳形HRTFラボ」は <a href="ear.html">こちら</a> です。'; $('advBox').querySelector('.inner').appendChild(old);
+  }
+  const LS = 'n1n2-tuner-v1';
+  const store = (() => { try { return JSON.parse(localStorage.getItem(LS) || '{}') || {}; } catch (e) { return {}; } })();
+  const save = () => { try { localStorage.setItem(LS, JSON.stringify(store)); } catch (e) { /* private mode: keep going */ } };
+
+  // ---------- numbers from the literature ----------
+  const N1_LO = 5719, N1_HI = 9563, N2_LO = 8250, N2_HI = 13500, STEP = 0.15;      // Japanese adults, front, 54 ears; JND 0.1-0.2 oct
+  const N1_MID = Math.sqrt(N1_LO * N1_HI), N2_MID = Math.sqrt(N2_LO * N2_HI);
+  const DEPTH1 = -14, DEPTH2 = -10, HEAD_A = 0.0904, C = 343, FS_DESIGN = 48000;
+  const grid = (lo, n) => Array.from({ length: n }, (_, k) => lo * Math.pow(2, STEP * k));
+
+  // ---------- small DSP helpers ----------
+  function peakDb(f, f0, g, q) {                          // RBJ peaking biquad magnitude at FS_DESIGN
+    if (f0 >= FS_DESIGN / 2 * 0.98) return 0;
+    const A = Math.pow(10, g / 40), w0 = 2 * Math.PI * f0 / FS_DESIGN, al = Math.sin(w0) / (2 * q), cw = Math.cos(w0);
+    const b0 = 1 + al * A, b1 = -2 * cw, b2 = 1 - al * A, a0 = 1 + al / A, a1 = -2 * cw, a2 = 1 - al / A;
+    const w = 2 * Math.PI * Math.min(f, FS_DESIGN / 2) / FS_DESIGN, c1 = Math.cos(w), s1 = Math.sin(w), c2 = Math.cos(2 * w), s2 = Math.sin(2 * w);
+    const nr = b0 + b1 * c1 + b2 * c2, ni = -(b1 * s1 + b2 * s2), dr = a0 + a1 * c1 + a2 * c2, di = -(a1 * s1 + a2 * s2);
+    return 10 * Math.log10((nr * nr + ni * ni) / (dr * dr + di * di));
+  }
+  function bdDb(f, psiDeg) {                              // Brown & Duda head shadow, psi = angle from the ear axis
+    const alpha = 1.05 + 0.95 * Math.cos(psiDeg / 150 * Math.PI), x = 2 * Math.PI * f * HEAD_A / (2 * C);
+    return 10 * Math.log10((1 + alpha * alpha * x * x) / (1 + x * x));
+  }
+  const dfCache = new Map();
+  function bdDiffuse(f) {                                 // power average of the head shadow over the sphere
+    const key = Math.round(f * 10); if (dfCache.has(key)) return dfCache.get(key);
+    let a = 0, w = 0; for (let p = 0.5; p < 180; p += 1) { const s = Math.sin(p * Math.PI / 180); a += s * Math.pow(10, bdDb(f, p) / 10); w += s; }
+    const v = 10 * Math.log10(a / w); dfCache.set(key, v); return v;
+  }
+  // the curve ExoSpace gets: diffuse-field equalized head shadow + the two notches. psi 60 = near ear for a speaker at +-30 deg,
+  // psi 90 = a source straight ahead (what the listening test plays)
+  const curveDb = (f, n1, n2, q, psi) => bdDb(f, psi) - bdDiffuse(f) + peakDb(f, n1, DEPTH1, q) + peakDb(f, n2, DEPTH2, q);
+
+  // GraphicEQ points: 1/48 octave, 20 Hz - 20 kHz
+  const EQF = (() => { const out = []; for (let i = 0; ; i++) { const f = 20 * Math.pow(2, i / 48); if (f > 20000) break; out.push(f < 100 ? Math.round(f * 10) / 10 : Math.round(f)); } if (out[out.length - 1] < 20000) out.push(20000); return out; })();
+
+  // ExoSpace's own way of reading and applying a profile (src/dsp/post.js: hrInterp, hrSmoothed, hrDb)
+  function hrInterp(x, f, g) {
+    const lx = Math.log(Math.max(x, 1)), n = f.length;
+    if (lx <= Math.log(Math.max(f[0], 1))) return g[0];
+    if (lx >= Math.log(Math.max(f[n - 1], 1))) return g[n - 1];
+    let lo = 0, hi = n - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (Math.log(Math.max(f[m], 1)) <= lx) lo = m; else hi = m; }
+    const l0 = Math.log(Math.max(f[lo], 1)), l1 = Math.log(Math.max(f[hi], 1));
+    return l1 === l0 ? g[lo] : g[lo] + (g[hi] - g[lo]) * (lx - l0) / (l1 - l0);
+  }
+  const HR_N = 960, HR_F0 = 20, HR_OCT = Math.log2(20000 / 20), hrGridF = (i) => HR_F0 * Math.pow(2, HR_OCT * i / (HR_N - 1));
+  function applied(gains, mode) {                         // dB(f) as ExoSpace will apply it
+    const pts = gains.map((g) => +g.toFixed(1));          // the file holds one decimal
+    if (mode !== 'keep') return (f) => hrInterp(f, EQF, pts);
+    const half = Math.round(0.1 / (HR_OCT / (HR_N - 1))), raw = new Float64Array(HR_N), sm = new Float64Array(HR_N);
+    for (let i = 0; i < HR_N; i++) raw[i] = hrInterp(hrGridF(i), EQF, pts);
+    for (let i = 0; i < HR_N; i++) { let a = 0, c = 0; for (let j = Math.max(0, i - half); j <= Math.min(HR_N - 1, i + half); j++) { a += raw[j]; c++; } sm[i] = a / c; }
+    return (f) => { const x = Math.max(0, Math.min(HR_N - 1, Math.log2(Math.max(f, HR_F0) / HR_F0) / HR_OCT * (HR_N - 1))), i = Math.min(HR_N - 2, Math.floor(x)), t = x - i; return sm[i] + (sm[i + 1] - sm[i]) * t; };
+  }
+  const gainsFor = (n1, n2, q, psi) => EQF.map((f) => curveDb(f, n1, n2, q, psi));
+
+  function fft(re, im, inv) {
+    const n = re.length;
+    for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+    for (let len = 2; len <= n; len <<= 1) {
+      const ang = (inv ? 2 : -2) * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang);
+      for (let i = 0; i < n; i += len) { let cr = 1, ci = 0;
+        for (let k = 0; k < len / 2; k++) { const a = i + k, b = a + len / 2, xr = re[b] * cr - im[b] * ci, xi = re[b] * ci + im[b] * cr;
+          re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi; const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t; } }
+    }
+    if (inv) for (let i = 0; i < n; i++) { re[i] /= n; im[i] /= n; }
+  }
+  function minPhaseFir(dbAt, fs, nTaps, nfft) {           // cepstral folding, as ExoSpace builds its HRTF filter
+    const re = new Float64Array(nfft), im = new Float64Array(nfft), half = nfft >> 1;
+    for (let k = 0; k <= half; k++) { const lm = Math.log(Math.max(Math.pow(10, dbAt(k * fs / nfft) / 20), 1e-6)); re[k] = lm; if (k > 0 && k < half) re[nfft - k] = lm; }
+    fft(re, im, false);
+    for (let i = 0; i < nfft; i++) { const w = i === 0 || i === half ? 1 : (i < half ? 2 : 0); re[i] *= w; im[i] = 0; }
+    fft(re, im, true);
+    for (let i = 0; i < nfft; i++) { const m = Math.exp(re[i]), a = im[i]; re[i] = m * Math.cos(a); im[i] = m * Math.sin(a); }
+    fft(re, im, false);
+    const h = new Float32Array(nTaps); for (let i = 0; i < nTaps; i++) h[i] = re[i] / nfft;   // two sign flips cancel: h = DFT(conj H) / N
+    const tail = nTaps >> 3; for (let i = 0; i < tail; i++) h[nTaps - tail + i] *= 0.5 * (1 + Math.cos(Math.PI * i / tail));
+    return h;
+  }
+  function levelDb(dbAt) {                                // loudness stand-in: pink-weighted power, 100 Hz - 16 kHz
+    let a = 0, c = 0; for (let i = 0; i <= 160; i++) { const f = 100 * Math.pow(160, i / 160); a += Math.pow(10, dbAt(f) / 10); c++; }
+    return 10 * Math.log10(a / c);
+  }
+
+  // ---------- audio ----------
+  let ctx = null, burst = null, live = [];
+  function ensureCtx() {
+    if (!ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) throw new Error('このブラウザでは音を出せません（Web Audio がありません）');
+      ctx = new AC();
+      const fs = ctx.sampleRate, seg = Math.round(0.25 * fs), gap = Math.round(0.15 * fs), ramp = Math.round(0.01 * fs);
+      const len = 3 * seg + 2 * gap; burst = ctx.createBuffer(1, len, fs); const d = burst.getChannelData(0);
+      let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0, seed = 20261116;
+      const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296 * 2 - 1; };
+      const pink = new Float32Array(len); let ss = 0;
+      for (let i = 0; i < len; i++) { const w = rnd();                                       // Paul Kellet's pink filter
+        b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759; b2 = 0.96900 * b2 + w * 0.1538520;
+        b3 = 0.86650 * b3 + w * 0.3104856; b4 = 0.55000 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.0168980;
+        pink[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362; b6 = w * 0.115926; ss += pink[i] * pink[i]; }
+      const k = 0.1 / Math.sqrt(ss / len);                                                     // -20 dBFS rms before the volume
+      for (let s = 0; s < 3; s++) { const o = s * (seg + gap);
+        for (let i = 0; i < seg; i++) { const e = i < ramp ? 0.5 - 0.5 * Math.cos(Math.PI * i / ramp) : i > seg - ramp ? 0.5 - 0.5 * Math.cos(Math.PI * (seg - i) / ramp) : 1; d[o + i] = pink[o + i] * k * e; } }
+    }
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+  function stopAll() { for (const n of live) { try { n.stop(); } catch (e) { /* already stopped */ } } live = []; }
+  function voice(n1, n2, q, mode, when) {                 // one presentation: 3 bursts through the frontal profile
+    const fs = ctx.sampleRate, dbAt = applied(gainsFor(n1, n2, q, 90), mode);
+    const ir = minPhaseFir(dbAt, fs, 1024, 8192), buf = ctx.createBuffer(1, ir.length, fs); buf.copyToChannel(ir, 0);
+    const conv = ctx.createConvolver(); conv.normalize = false; conv.buffer = buf;
+    const g = ctx.createGain(); g.gain.value = Math.pow(10, (store.vol - levelDb(dbAt)) / 20);
+    const src = ctx.createBufferSource(); src.buffer = burst; src.connect(conv); conv.connect(g); g.connect(ctx.destination);
+    src.start(when); live.push(src); return burst.duration;
+  }
+  // play a list of [n1, n2] pairs in turn; onEach(i) fires when item i starts; resolves when all have played
+  function playSeq(items, q, mode, onEach) {
+    ensureCtx(); stopAll();
+    const t0 = ctx.currentTime + 0.12; let t = t0; const starts = [];
+    items.forEach(([a, b]) => { starts.push(t); t += voice(a, b, q, mode, t) + 0.55; });
+    const token = {}; playSeq.token = token;
+    starts.forEach((s, i) => setTimeout(() => { if (playSeq.token === token && onEach) onEach(i); }, (s - ctx.currentTime) * 1000));
+    return new Promise((res) => setTimeout(() => res(playSeq.token === token), (t - ctx.currentTime) * 1000));
+  }
+
+  // ---------- state ----------
+  store.vol = Number.isFinite(store.vol) ? store.vol : -26;
+  const q = () => +$('qSel').value, mode = () => $('modeSel').value;
+  const initN1 = () => { const v = +$('n1Init').value; return v >= 3000 && v <= 16000 ? v : N1_MID; };
+  const initN2 = () => { const v = +$('n2Init').value; return v >= 5000 && v <= 18000 ? v : N2_MID; };
+  const fmt = (f) => (f / 1000).toFixed(2) + ' kHz';
+  const oct = (a, b) => Math.log2(a / b);
+  if (store.n1Init) $('n1Init').value = store.n1Init; if (store.n2Init) $('n2Init').value = store.n2Init;
+  if (store.q) $('qSel').value = String(store.q); if (store.mode) $('modeSel').value = store.mode; if (store.url) $('appUrl').value = store.url;
+  if (STANDALONE) $('appUrl').value = new URL('./', location.href).href;   // the app sits next to this page
+  $('vol').value = store.vol; $('volOut').textContent = store.vol + ' dB';
+  let cur = { n1: store.n1 || initN1(), n2: store.n2 || initN2(), done: !!store.n1 };
+
+  // ---------- listening procedure ----------
+  // Each value: 6 candidates 0.15 oct apart, narrowed by 3 comparisons (thirds, then the last pair), done twice.
+  const T = { on: false, param: 'n1', round: 1, lo: 0, hi: 5, g: [], wins: { n1: [], n2: [] }, count: 0, pend: null, busy: false };
+  const TOTAL = 12;
+  function progressDraw() {
+    const p = $('progress'); p.textContent = '';
+    for (let i = 0; i < TOTAL; i++) { const e = document.createElement('i'); if (i < T.count) e.className = 'done'; else if (T.on && i === T.count) e.className = 'now'; p.appendChild(e); }
+  }
+  function label() {
+    if (!T.on) return;
+    $('stepLabel').innerHTML = `<b>${T.param === 'n1' ? 'N1（第1の谷）' : 'N2（第2の谷）'}</b>・${T.round}周目・${T.count + 1}/${TOTAL}回目`;
+  }
+  // candidates: around the photo value when there is one (+-0.375 oct), else the whole range of the 54 ears
+  function beginParam(param, round) {
+    T.param = param; T.round = round; T.lo = 0; T.hi = 5;
+    const around = (v) => v * Math.pow(2, -2.5 * STEP);
+    if (param === 'n1') T.g = grid($('n1Init').value ? around(initN1()) : N1_LO, 6);
+    else T.g = grid(Math.max(cur.n1 * Math.pow(2, STEP), $('n2Init').value ? around(initN2()) : N2_LO), 6);
+  }
+  function pickPair() {
+    const span = T.hi - T.lo;
+    if (span >= 3) { const t = Math.floor(span / 3); return [T.lo + t, T.hi - t]; }
+    return [T.lo, T.hi];                                  // span 2 or 1
+  }
+  function valueFor(i) { return T.param === 'n1' ? [T.g[i], initN2() > T.g[i] * 1.08 ? initN2() : T.g[i] * Math.pow(2, 0.5)] : [cur.n1, T.g[i]]; }
+  async function present() {
+    const [a, b] = pickPair(), swap = Math.random() < 0.5, order = swap ? [b, a] : [a, b];
+    T.pend = { a, b, order }; T.busy = true; setAB(false); label(); progressDraw();
+    $('listenMsg').textContent = '鳴らしています…';
+    const ok = await playSeq(order.map(valueFor), q(), mode(), (i) => { $('aBtn').classList.toggle('playing', i === 0); $('bBtn').classList.toggle('playing', i === 1); });
+    $('aBtn').classList.remove('playing'); $('bBtn').classList.remove('playing');
+    if (!ok) return;
+    T.busy = false; setAB(true); $('listenMsg').textContent = '正面・目の高さに聞こえたほうを選んでください。';
+  }
+  function setAB(on) { for (const id of ['aBtn', 'bBtn', 'tieBtn', 'againBtn']) $(id).disabled = !on; if (!T.on) $('againBtn').disabled = true; }
+  // one comparison of candidates a < b (indices) narrows [lo, hi]; win = a | b | null (same). Returns the chosen value when done.
+  function narrow(s, a, b, win) {
+    const span = s.hi - s.lo;
+    if (span >= 3) { if (win === null) { s.lo = a; s.hi = b; } else if (win === a) s.hi = b - 1; else s.lo = a + 1; }
+    else if (span === 2) { if (win === null) { s.lo = s.hi = s.lo + 1; } else if (win === a) s.hi = s.lo + 1; else s.lo = s.lo + 1; }
+    else return win === null ? Math.sqrt(s.g[a] * s.g[b]) : s.g[win];
+    return s.hi === s.lo ? s.g[s.lo] : null;
+  }
+  function answer(which) {                                 // 'A' | 'B' | 'tie'
+    if (!T.on || T.busy || !T.pend) return;
+    const { a, b, order } = T.pend;
+    const win = which === 'tie' ? null : (which === 'A' ? order[0] : order[1]);
+    const result = narrow(T, a, b, win);
+    T.count++;
+    if (result === null) { present(); return; }
+    T.wins[T.param].push(result);
+    if (T.round === 1) { beginParam(T.param, 2); present(); return; }
+    const [w1, w2] = T.wins[T.param], val = Math.sqrt(w1 * w2);
+    cur[T.param] = val; cur[T.param + 'Spread'] = Math.abs(oct(w1, w2));
+    if (T.param === 'n1') { beginParam('n2', 1); present(); return; }
+    finish();
+  }
+  function finish() {
+    T.on = false; T.pend = null; setAB(false); progressDraw();
+    $('stepLabel').innerHTML = '<b>終わりました</b>';
+    cur.done = true; cur.src = 'listen'; store.n1 = cur.n1; store.n2 = cur.n2; store.src = 'listen'; save();
+    $('listenMsg').textContent = '';
+    showStep('result');
+  }
+  $('startBtn').onclick = () => {
+    try { ensureCtx(); } catch (e) { $('listenMsg').textContent = e.message; $('listenMsg').className = 'msg warn'; return; }
+    T.on = true; T.count = 0; T.wins = { n1: [], n2: [] }; beginParam('n1', 1);
+    $('startBtn').textContent = '最初からやり直す'; present();
+  };
+  $('aBtn').onclick = () => answer('A'); $('bBtn').onclick = () => answer('B'); $('tieBtn').onclick = () => answer('tie');
+  $('againBtn').onclick = () => { if (T.on && !T.busy) present(); };
+  document.addEventListener('keydown', (e) => {
+    if (!T.on || T.busy || e.target.closest('input, select, textarea')) return;
+    if (e.key === 'a' || e.key === 'A' || e.key === '1') answer('A'); else if (e.key === 'b' || e.key === 'B' || e.key === '2') answer('B'); else if (e.key === '0' || e.key === ' ') { e.preventDefault(); answer('tie'); }
+  });
+
+  // ---------- preparation ----------
+  $('vol').oninput = () => { store.vol = +$('vol').value; $('volOut').textContent = store.vol + ' dB'; save(); };
+  for (const id of ['n1Init', 'n2Init']) $(id).onchange = () => { store[id] = $(id).value; save(); if (!cur.done) { cur.n1 = initN1(); cur.n2 = initN2(); setSliders(); } refresh(); };
+  for (const id of ['qSel', 'modeSel']) $(id).onchange = () => { store.q = q(); store.mode = mode(); save(); refresh(); };
+  $('tryBtn').onclick = async () => {
+    try { ensureCtx(); } catch (e) { $('prepMsg').textContent = e.message; return; }
+    $('prepMsg').textContent = `鳴らしています（N1 ${fmt(initN1())}・N2 ${fmt(initN2())}）…`;
+    if (await playSeq([[initN1(), initN2()]], q(), mode())) $('prepMsg').textContent = '聞こえる大きさに音量を合わせてください。小さめで十分です。';
+  };
+  $('checkBtn').onclick = async () => {
+    try { ensureCtx(); } catch (e) { $('checkMsg').textContent = e.message; return; }
+    $('checkMsg').textContent = 'いちばん低い N1 と、いちばん高い N1 を順に鳴らしています…';
+    const lo = grid(N1_LO, 6)[0], hi = grid(N1_LO, 6)[5];
+    if (await playSeq([[lo, initN2()], [hi, initN2()]], q(), mode()))
+      $('checkMsg').innerHTML = '2つの音の違い（高さや前後の感じ）が分かれば、聴き比べに進めます。<br>ほとんど同じに聞こえたら、「谷の鋭さ」を 4 にすると違いが大きくなります。';
+  };
+
+  // ---------- from a photo: 5 points -> N1, N2 ----------
+  // The ear canal, the ear's top and bottom (scale), and where the line through the canal, going backwards, meets the inner edge
+  // of the helix (N1) and the edge of the antihelix (N2). Each notch is the reflection from that edge: f = c / (2 d).
+  // The viewer goes through the five points one at a time, with a drawn sample ear lighting up where the point belongs.
+  const DemoEar = (() => {
+    const W = 520, H = 680, S = 8, CX = 330, CY = 330; // 8 px per mm
+    // gamma: 0 = up, 90 = back, 180 = down (polar around ear canal), r in mm
+    const tables = {
+      helix: [[-25, 30], [0, 33], [30, 33], [60, 31], [90, 27.5], [120, 25], [150, 24], [172, 25]],
+      antihelix: [[20, 24], [45, 22], [70, 19], [90, 17.5], [115, 16.5], [140, 16], [160, 17]],
+      concha: [[30, 15], [60, 12.5], [90, 11.5], [120, 11], [150, 11.5], [170, 12.5]],
+    };
+    const pt = (g, r) => ({ x: CX - Math.sin(g * Math.PI / 180) * r * S, y: CY - Math.cos(g * Math.PI / 180) * r * S });
+    function interp(tab, g) {
+      for (let i = 0; i + 1 < tab.length; i++) if (g >= tab[i][0] && g <= tab[i + 1][0]) {
+        const f = (g - tab[i][0]) / (tab[i + 1][0] - tab[i][0]);
+        return tab[i][1] + f * (tab[i + 1][1] - tab[i][1]);
+      }
+      return null;
+    }
+    function curve(tab, step = 12) {
+      const out = [];
+      for (let g = tab[0][0]; g <= tab[tab.length - 1][0] + 1e-9; g += step) out.push(pt(g, interp(tab, Math.min(g, tab[tab.length - 1][0]))));
+      return out;
+    }
+    const contours = [curve(tables.helix), curve(tables.antihelix, 10), curve(tables.concha, 10)];
+    const geom = {
+      canal: { x: CX, y: CY }, contours,
+      scale: [{ x: CX - 2, y: CY - 37 * S }, { x: CX - 6, y: CY + 28 * S }], scaleMm: 65,
+      front: 1, tiltDeg: 0,
+    };
+  
+    function draw(ctx) {
+      const sm = (pts, close) => {
+        ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length - 1; i++) {
+          const mx = (pts[i].x + pts[i + 1].x) / 2, my = (pts[i].y + pts[i + 1].y) / 2;
+          ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+        }
+        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y); if (close) ctx.closePath();
+      };
+      const bg = ctx.createLinearGradient(0, 0, W, H);
+      bg.addColorStop(0, '#5d4a3f'); bg.addColorStop(1, '#3a2e27');
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+      // cheek on the face side
+      ctx.fillStyle = '#d9a688'; ctx.fillRect(400, 0, W - 400, H);
+      // outer pinna outline
+      const outer = [];
+      for (let g = -40; g <= 180; g += 8) {
+        const r = g <= 172 ? (interp(tables.helix, Math.max(-25, Math.min(172, g))) + 4.5) : 0;
+        outer.push(pt(g, g <= 172 ? r : 34));
+      }
+      outer.push(pt(186, 33), pt(196, 30), pt(208, 25), pt(222, 17), pt(240, 12), pt(270, 10), pt(310, 18), pt(330, 30));
+      const sk = ctx.createRadialGradient(CX - 60, CY - 20, 30, CX - 40, CY, 320);
+      sk.addColorStop(0, '#f0c3a6'); sk.addColorStop(1, '#c98c6c');
+      ctx.fillStyle = sk; sm(outer, true); ctx.fill();
+      ctx.strokeStyle = 'rgba(90,45,30,.55)'; ctx.lineWidth = 3; ctx.stroke();
+      // scapha (between helix and antihelix)
+      ctx.strokeStyle = 'rgba(120,60,40,.45)'; ctx.lineWidth = 14; ctx.lineCap = 'round';
+      sm(curve(tables.helix.map(([g, r]) => [g, r - 1.8])), false); ctx.stroke();
+      // antihelix ridge
+      ctx.strokeStyle = 'rgba(255,225,205,.7)'; ctx.lineWidth = 10;
+      sm(curve(tables.antihelix.map(([g, r]) => [g, r + 1.5])), false); ctx.stroke();
+      // concha bowl
+      const bowl = curve(tables.concha, 10).concat([pt(200, 8), pt(250, 6), pt(320, 8), pt(10, 13)]);
+      const cg = ctx.createRadialGradient(CX - 30, CY, 10, CX - 30, CY, 120);
+      cg.addColorStop(0, '#8a4e3a'); cg.addColorStop(1, '#c78a6b');
+      ctx.fillStyle = cg; sm(bowl, true); ctx.fill();
+      // tragus
+      ctx.fillStyle = '#e1aa8c'; ctx.beginPath(); ctx.ellipse(CX + 52, CY + 18, 22, 40, -0.2, 0, Math.PI * 2); ctx.fill();
+      // ear canal
+      ctx.fillStyle = '#2a1510'; ctx.beginPath(); ctx.ellipse(CX + 8, CY, 26, 34, 0.3, 0, Math.PI * 2); ctx.fill();
+    }
+  
+    function dataURL() {
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      draw(c.getContext('2d')); return c.toDataURL('image/png');
+    }
+    const outline = (() => { const o = []; for (let g = -40; g <= 172; g += 4) o.push(pt(g, interp(tables.helix, Math.max(-25, Math.min(172, g))) + 4.5));
+      o.push(pt(186, 33), pt(196, 30), pt(208, 25), pt(222, 17)); return o; })();
+    return { W, H, S, geom, tables, dataURL, outline, interp, pt };
+  })();
+  const PH = { img: null, pts: {}, sample: null, ctl: null, n1: 0, n2: 0, zoomed: false, ext: null };
+  const ORDER = ['canal', 'top', 'bottom', 'h1', 'h2'];
+  const PT = {
+    canal: { col: '#e53935', tag: '穴', title: '耳の穴の真ん中',
+      body: '耳の穴（黒く見えるところ）の真ん中に置きます。耳の前にある小さな出っぱり（耳珠）のすぐ後ろです。' },
+    top: { col: '#12a39b', tag: '上', title: '耳のいちばん上',
+      body: '耳のふちの、いちばん高いところに置きます。' },
+    bottom: { col: '#12a39b', tag: '下', title: '耳たぶのいちばん下',
+      body: '耳たぶの、いちばん低いところに置きます。' },
+    h1: { col: '#f08a1c', tag: 'N1', title: '外側のふちの、内側の線',
+      body: '耳のいちばん外側のふちは、くるっと巻いた帯に見えます。白い点線の上で、その帯の内側の線（帯と、内側のくぼみの境目）に置きます。点は点線の上だけを動きます。' },
+    h2: { col: '#8f6bf0', tag: 'N2', title: '内側の山の、耳の穴側の線',
+      body: '外側のふちの内側に、もう一つ盛り上がった山があります。白い点線の上で、その山の、耳の穴に向いた側の縁に置きます。' },
+  };
+  // where each point sits on the drawn sample ear
+  const GUIDE = (() => {
+    const c = DemoEar.geom.canal, o = DemoEar.outline, S8 = DemoEar.S, at = (t) => DemoEar.interp(t, 90);
+    const top = o.reduce((m, p) => (p.y < m.y ? p : m)), bot = o.reduce((m, p) => (p.y > m.y ? p : m));
+    return { canal: { x: c.x + 6, y: c.y }, top: { x: top.x, y: Math.max(40, top.y) }, bottom: { x: bot.x, y: Math.min(DemoEar.H - 40, bot.y) },
+      h1: { x: c.x - at(DemoEar.tables.helix) * S8, y: c.y }, h2: { x: c.x - (at(DemoEar.tables.antihelix) + 0.9) * S8, y: c.y } };
+  })();
+  let DEMO_URL = '';
+  function demoSvg(svg, key) {
+    if (!svg) return;
+    if (!svg.dataset.ready) { if (!DEMO_URL) { try { DEMO_URL = DemoEar.dataURL(); } catch (e) { return; } }
+      svg.innerHTML = `<image href="${DEMO_URL}" width="${DemoEar.W}" height="${DemoEar.H}"/><g class="ov"></g>`; svg.dataset.ready = '1'; }
+    const G = GUIDE, line = key === 'h1' || key === 'h2' || key === 'canal';
+    let s = line ? `<line x1="10" y1="${G.canal.y}" x2="510" y2="${G.canal.y}" stroke="#fff" stroke-width="5" stroke-dasharray="16 12" opacity=".9"/>` : '';
+    for (const k of ORDER) { if (!key || k === key) continue; const p = G[k]; s += `<circle cx="${p.x}" cy="${p.y}" r="13" fill="${PT[k].col}" stroke="#fff" stroke-width="4" opacity=".55"/>`; }
+    if (key) { const p = G[key]; s += `<circle class="ring" cx="${p.x}" cy="${p.y}" r="40" fill="none" stroke="#ffd84a" stroke-width="10"/><circle cx="${p.x}" cy="${p.y}" r="24" fill="${PT[key].col}" stroke="#fff" stroke-width="6"/>`; }
+    svg.querySelector('.ov').innerHTML = s;
+  }
+  demoSvg($('tipSvg'), null);
+
+  // ---------- steps ----------
+  const SECTIONS = { photo: 'sPhoto', points: 'sPoints', result: 'sResult', listen: 'sListen' };
+  let stepNow = 'photo';
+  function showStep(name, noScroll) {
+    stepNow = name;
+    for (const [k, id] of Object.entries(SECTIONS)) $(id).hidden = k !== name;
+    const order = ['photo', 'points', 'result'], at = order.indexOf(name === 'listen' ? 'result' : name);
+    document.querySelectorAll('#stepper li').forEach((li, i) => {
+      li.className = i === at ? 'now' : i < at ? 'done' : '';
+      const b = li.querySelector('button'), s = li.dataset.s;
+      b.disabled = s === 'points' ? !PH.img : s === 'result' ? !cur.done : false;
+      b.setAttribute('aria-current', i === at ? 'step' : 'false');
+    });
+    if (name === 'points') requestAnimationFrame(() => photoDraw());
+    if (name === 'result') { setSliders(); refresh(); }
+    if (!noScroll) { const el = $(SECTIONS[name]); requestAnimationFrame(() => el.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })); }
+  }
+  document.querySelectorAll('#stepper li').forEach((li) => li.querySelector('button').addEventListener('click', () => showStep(li.dataset.s)));
+
+  const cv = $('photoCv');
+  // Points live in "base" coordinates: the photo scaled to the canvas (cv.width x cv.height). The canvas shows the part V of it,
+  // enlarged by Z = cv.width / V.w; S() maps base -> canvas pixels.
+  let V = { x: 0, y: 0, w: 1, h: 1 }, pi = 0;
+  const key = () => ORDER[pi];
+  const Z = () => cv.width / V.w;
+  const S = (p) => ({ x: (p.x - V.x) * Z(), y: (p.y - V.y) * Z() });
+  const R = () => { const w = cv.getBoundingClientRect().width || cv.width; return Math.max(3, 9 * cv.width / w); };   // 9 CSS px on any screen
+  function setView(cx, cy, z) {                            // centre (base) and zoom, kept inside the photo
+    z = Math.max(1, Math.min(8, z)); const w = cv.width / z, h = cv.height / z;
+    V = { x: Math.max(0, Math.min(cv.width - w, cx - w / 2)), y: Math.max(0, Math.min(cv.height - h, cy - h / 2)), w, h };
+    photoDraw();
+  }
+  function zoomToPoints() {                                // frame the points that are there
+    const ps = ORDER.map((k) => PH.pts[k]).filter(Boolean); if (ps.length < 2) return;
+    const xs = ps.map((p) => p.x), ys = ps.map((p) => p.y), w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
+    const z = Math.min(cv.width / (w * 1.9 + 1), cv.height / (h * 1.5 + 1));
+    PH.zoomed = true; setView((Math.max(...xs) + Math.min(...xs)) / 2, (Math.max(...ys) + Math.min(...ys)) / 2, z);
+  }
+  function msg(t, warn) { $('photoMsg').className = warn ? 'msg warn' : 'msg'; $('photoMsg').textContent = t; }
+  function aiUI() { $('aiBtn').hidden = !(PH.img && PH.sample) || !!PH.ctl; $('aiStop').hidden = !PH.ctl; }
+  function stepPoint(i, note) {                           // show point i: guide, buttons, highlight
+    pi = Math.max(0, Math.min(ORDER.length - 1, i)); const k = key(), has = !!PH.pts[k], line = k === 'h1' || k === 'h2';
+    $('ptCount').textContent = `${pi + 1} / ${ORDER.length}`;
+    $('gTitle').textContent = PT[k].title; $('gBody').textContent = PT[k].body; demoSvg($('guideSvg'), k);
+    $('ptNext').textContent = !has ? '写真をタップして置いてください' : pi === ORDER.length - 1 ? '合っている・できあがりへ' : '合っている・次へ';
+    $('ptNext').disabled = !has || !!PH.ctl;
+    $('nudgeL').disabled = $('nudgeR').disabled = !has; $('nudgeU').disabled = $('nudgeD').disabled = !has || line;
+    if (note !== undefined) msg(note[0], note[1]);
+    else if (!PH.ctl) msg(has ? '見本と同じ場所にありますか？ ずれていたら、指で動かすか矢印で直します。' : (!PH.zoomed && !PH.pts.canal ? 'まず、写真の耳のあたりをタップしてください。耳に寄ります。' : '写真の、見本と同じ場所をタップしてください。'));
+    photoDraw();
+  }
+  let loupe = null;                                        // the point being dragged: shown enlarged in a corner
+  function photoDraw() {
+    if (!PH.img) return;
+    const g = cv.getContext('2d'), r = R(), p = PH.pts, kc = cv.width / PH.img.naturalWidth, W = cv.width, H = cv.height, now = stepNow === 'points' ? key() : null;
+    g.drawImage(PH.img, V.x / kc, V.y / kc, V.w / kc, V.h / kc, 0, 0, W, H);
+    g.lineWidth = Math.max(1.5, r / 4); g.setLineDash([r, r * 0.8]);
+    if (p.canal) { const y = S(p.canal).y; g.strokeStyle = 'rgba(255,255,255,.9)'; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+    const ec = !$('extBox').hidden && $('helpBox').open && PH.ext;                           // the part sent to ChatGPT / Gemini
+    if (ec && ec.w < W) { const a = S(ec); g.strokeStyle = 'rgba(255,214,0,.95)'; g.lineWidth = Math.max(2, r / 3); g.strokeRect(a.x, a.y, ec.w * Z(), ec.h * Z()); g.lineWidth = Math.max(1.5, r / 4); }
+    g.setLineDash([]);
+    g.font = `600 ${Math.round(r * 1.5)}px ${getComputedStyle(document.documentElement).getPropertyValue('--f-mono') || 'monospace'}`;
+    for (const k of ORDER) {
+      if (!p[k]) continue; const q = S(p[k]), cur1 = k === now;
+      g.globalAlpha = now && !cur1 ? 0.55 : 1;
+      if (cur1) { g.beginPath(); g.arc(q.x, q.y, r * 2, 0, 2 * Math.PI); g.lineWidth = Math.max(2.5, r / 2.5); g.strokeStyle = 'rgba(255,214,0,.95)'; g.stroke(); }
+      g.beginPath(); g.arc(q.x, q.y, cur1 ? r * 1.15 : r * 0.8, 0, 2 * Math.PI); g.fillStyle = PT[k].col; g.fill(); g.lineWidth = Math.max(1.5, r / 3.5); g.strokeStyle = '#fff'; g.stroke();
+      if (cur1 || !now) { const ty = q.y - r * 2.4; g.lineWidth = r / 2; g.strokeStyle = 'rgba(0,0,0,.75)'; g.textAlign = 'center'; g.strokeText(PT[k].tag, q.x, ty); g.fillStyle = '#fff'; g.fillText(PT[k].tag, q.x, ty); }
+      g.globalAlpha = 1;
+    }
+    if (loupe && p[loupe]) {                               // 3x of the current view, in the corner away from the finger
+      const q = p[loupe], s = S(q), L = Math.round(Math.min(W, H) * 0.42), m = 3 * Z(), half = L / 2 / m;
+      const lx = s.x > W / 2 ? r : W - L - r, ly = s.y > H * 0.45 ? r : H - L - r;
+      g.save(); g.beginPath(); g.rect(lx, ly, L, L); g.clip();
+      g.drawImage(PH.img, (q.x - half) / kc, (q.y - half) / kc, 2 * half / kc, 2 * half / kc, lx, ly, L, L);
+      g.strokeStyle = 'rgba(255,255,255,.95)'; g.lineWidth = 1.5;
+      if (p.canal && loupe !== 'top' && loupe !== 'bottom') { g.setLineDash([6, 5]); g.beginPath(); g.moveTo(lx, ly + L / 2); g.lineTo(lx + L, ly + L / 2); g.stroke(); g.setLineDash([]); }
+      g.strokeStyle = PT[loupe].col; g.lineWidth = 2; g.beginPath(); g.moveTo(lx + L / 2, ly + L / 2 - L * 0.12); g.lineTo(lx + L / 2, ly + L / 2 + L * 0.12);
+      g.moveTo(lx + L / 2 - L * 0.12, ly + L / 2); g.lineTo(lx + L / 2 + L * 0.12, ly + L / 2); g.stroke();
+      g.restore(); g.lineWidth = 3; g.strokeStyle = '#fff'; g.strokeRect(lx, ly, L, L); g.lineWidth = 1; g.strokeStyle = 'rgba(0,0,0,.6)'; g.strokeRect(lx - 1.5, ly - 1.5, L + 3, L + 3);
+    }
+  }
+  // the five points -> N1, N2; returns { ok } or the point to fix with the reason. PH.n1/n2 hold the values when ok.
+  function evalPts() {
+    const p = PH.pts; PH.n1 = PH.n2 = 0;
+    const miss = ORDER.find((k) => !p[k]); if (miss) return { ok: false, fix: miss, why: 'まだ置いていない点があります。' };
+    const mm = +$('earMm').value, scale = Math.hypot(p.top.x - p.bottom.x, p.top.y - p.bottom.y) / (mm >= 40 && mm <= 90 ? mm : 65);
+    const d1 = (p.h1.x - p.canal.x), d2 = (p.h2.x - p.canal.x);
+    if (!(scale > 0)) return { ok: false, fix: 'bottom', why: '耳のいちばん上と、耳たぶのいちばん下の点が重なっています。' };
+    if (Math.sign(d1) !== Math.sign(d2) || Math.abs(d2) >= Math.abs(d1)) return { ok: false, fix: 'h2', why: 'N2 の点は、N1 の点より耳の穴に近い側（同じ後ろ側）に置きます。' };
+    const mm1 = Math.abs(d1) / scale, mm2 = Math.abs(d2) / scale, ratio = mm2 / mm1;
+    // plausibility: the canal-helix distance is about 15-40 mm on ears, and the antihelix edge at roughly 0.4-0.9 of it
+    if (mm1 < 15 || mm1 > 40) return { ok: false, fix: 'h1', why: `耳の穴から外側のふちまでが ${mm1.toFixed(0)} mm で、耳として不自然です。この点か、耳の穴・上・下の点を確かめてください。` };
+    if (ratio < 0.4) return { ok: false, fix: 'h2', why: 'この点が耳の穴に近すぎます。耳の穴と外側のふちの、あいだにある山の縁へ動かしてください。' };
+    if (ratio > 0.9) return { ok: false, fix: 'h2', why: 'この点が外側のふちに近すぎます。ふちの内側にある山の、耳の穴側の縁へ動かしてください。' };
+    PH.n1 = C * 1000 / (2 * mm1); PH.n2 = C * 1000 / (2 * mm2); return { ok: true, mm1, mm2 };
+  }
+  function place(k, q) {
+    const p = PH.pts;
+    if ((k === 'h1' || k === 'h2') && p.canal) q = { x: q.x, y: p.canal.y };          // these two lie on the line through the canal
+    p[k] = q;
+    if (k === 'canal') for (const h of ['h1', 'h2']) if (p[h]) p[h] = { x: p[h].x, y: q.y };
+    if (k === key()) stepPoint(pi); else photoDraw();
+  }
+  const toCanvas = (e) => { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * cv.width, y: (e.clientY - r.top) / r.height * cv.height }; };
+  const toBase = (c) => ({ x: V.x + c.x / Z(), y: V.y + c.y / Z() });
+  // Touch: the current point under the finger is dragged (with the magnifier); elsewhere a drag pans an enlarged view and a tap
+  // moves the current point there (the very first tap on a whole photo zooms to the ear instead). With the ChatGPT / Gemini
+  // panel open, a tap picks the ear to crop.
+  let dragK = null, down = null, downC = null, startV = null, moved = false;
+  cv.addEventListener('pointerdown', (e) => {
+    if (!PH.img || PH.ctl) return;
+    const c = toCanvas(e), q = toBase(c), k = key(), p = PH.pts[k];
+    dragK = p && Math.hypot(S(p).x - c.x, S(p).y - c.y) < R() * 2.8 ? k : null;
+    down = q; downC = c; startV = { ...V }; moved = false;
+    try { cv.setPointerCapture(e.pointerId); } catch (x) { /* fine */ }
+    e.preventDefault();
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (!down) return; const c = toCanvas(e);
+    if (!moved && Math.hypot(c.x - downC.x, c.y - downC.y) < R()) return;
+    moved = true;
+    if (dragK) { loupe = dragK; place(dragK, toBase(c)); return; }
+    if (Z() > 1.01) setView(startV.x + startV.w / 2 - (c.x - downC.x) / Z(), startV.y + startV.h / 2 - (c.y - downC.y) / Z(), Z());
+  });
+  cv.addEventListener('pointerup', () => {
+    const panel = !$('extBox').hidden && $('helpBox').open;
+    if (down && !moved) {
+      if (panel) extCrop(down);
+      else if (!PH.zoomed && Z() < 1.5 && !PH.pts.canal) { PH.zoomed = true; setView(down.x, down.y, 1 / 0.45); stepPoint(pi); }
+      else place(key(), down);                                                            // a tap (on the point or not) puts it there
+    }
+    dragK = null; down = null; if (loupe) { loupe = null; photoDraw(); }
+  });
+  cv.addEventListener('pointercancel', () => { dragK = null; down = null; loupe = null; photoDraw(); });
+  $('zoomFit').onclick = () => { PH.zoomed = true; setView(cv.width / 2, cv.height / 2, 1); stepPoint(pi); };
+  $('zoomIn').onclick = () => { PH.zoomed = true; const c = PH.pts[key()] || { x: V.x + V.w / 2, y: V.y + V.h / 2 }; setView(c.x, c.y, Z() * 1.5); };
+  $('zoomOut').onclick = () => setView(V.x + V.w / 2, V.y + V.h / 2, Z() / 1.5);
+  function nudge(dx, dy) {                                 // 0.25 mm on the ear (or 1/4 of a screen pixel before the scale is known)
+    const k = key(), p = PH.pts; if (!p[k]) return;
+    const mm = +$('earMm').value || 65, step = p.top && p.bottom ? Math.hypot(p.top.x - p.bottom.x, p.top.y - p.bottom.y) / mm * 0.25 : 0.25 / Z();
+    place(k, { x: p[k].x + dx * step, y: p[k].y + dy * step });
+  }
+  $('nudgeL').onclick = () => nudge(-1, 0); $('nudgeR').onclick = () => nudge(1, 0);
+  $('nudgeU').onclick = () => nudge(0, -1); $('nudgeD').onclick = () => nudge(0, 1);
+  $('ptBack').onclick = () => { if (pi === 0) showStep('photo'); else stepPoint(pi - 1); };
+  $('ptNext').onclick = () => {
+    if (!PH.pts[key()]) return;
+    if (pi < ORDER.length - 1) { stepPoint(pi + 1); if (!PH.pts[key()] && PH.pts.canal) { const c = PH.pts.canal; if (Z() < 1.5) { PH.zoomed = true; setView(c.x, c.y, 1 / 0.45); } } return; }
+    const r = evalPts();
+    if (!r.ok) { stepPoint(ORDER.indexOf(r.fix), [r.why, true]); return; }
+    usePhotoValues();
+  };
+  function usePhotoValues() {
+    $('n1Init').value = Math.round(PH.n1 / 10) * 10; $('n2Init').value = Math.round(PH.n2 / 10) * 10;
+    store.n1Init = $('n1Init').value; store.n2Init = $('n2Init').value;
+    cur.n1 = PH.n1; cur.n2 = PH.n2; cur.n1Spread = cur.n2Spread = undefined; cur.done = true; cur.src = 'photo';
+    store.n1 = cur.n1; store.n2 = cur.n2; store.src = 'photo'; save();
+    showStep('result');
+  }
+  $('earMm').onchange = () => { photoDraw(); };
+  $('photoLbl').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('photoIn').click(); } });
+  $('photoIn').addEventListener('change', async () => {
+    const f = $('photoIn').files && $('photoIn').files[0]; if (!f) return;
+    if (PH.ctl) PH.ctl.abort();
+    const url = URL.createObjectURL(f), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 1400 / Math.max(img.naturalWidth, img.naturalHeight));
+      cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k);
+      PH.img = img; PH.pts = {}; PH.n1 = PH.n2 = 0; extCenter = null; PH.ext = null; PH.zoomed = false; V = { x: 0, y: 0, w: cv.width, h: cv.height };
+      showStep('points'); aiUI(); stepPoint(0);
+      if (!$('extBox').hidden) extCrop(null);
+      if (PH.sample) aiRun();
+      try { $('photoIn').value = ''; } catch (x) { /* fine */ }
+    };
+    img.onerror = () => { $('photoHint').className = 'cap warn'; $('photoHint').textContent = '写真を読み込めませんでした。JPEG か PNG の写真を選んでください。'; };
+    img.src = url;
+  });
+  $('tapBtn').onclick = () => { if (PH.ctl) PH.ctl.abort(); PH.pts = {}; $('helpBox').open = false; stepPoint(0); };
+  $('goListen').onclick = () => showStep('listen');
+  $('goListenNoPhoto').onclick = () => showStep('listen');
+  $('goPoints').onclick = () => { if (PH.img) { showStep('points'); stepPoint(0); } else showStep('photo'); };
+  $('goPhoto').onclick = () => showStep('photo');
+  $('showPrev').onclick = () => showStep('result');
+
+  // AI places the points (claude.ai only, through the page's sample capability; the first use asks the viewer)
+  const AI_FIND = 'This photo shows a person\'s head from the side. Locate the visible external ear (pinna). Coordinates are normalized 0-1000: x from the left edge to the right edge of the image, y from the top edge to the bottom edge. Reply with only JSON: {"found": true, "box": [x0, y0, x1, y1]} where the box tightly contains the whole pinna including the earlobe. If no ear is visible, reply {"found": false}.';
+  const AI_TRACE = [
+    'This is a close-up photo of a human outer ear (pinna), taken from the side. A faint cyan grid is drawn every 100 units, labelled along the top and left edges. Coordinates are normalized 0-1000 over THIS image: x from the left edge to the right edge, y from the top edge to the bottom edge.',
+    'Mark these landmarks for an acoustic model of the ear:',
+    '- "canal": the centre of the ear-canal opening (the dark hole just behind the tragus).',
+    '- "top": the highest point of the outer rim. "bottom": the lowest point of the earlobe.',
+    '- "helix": 14-20 points along the INNER edge of the outer rim (helix), in order: start at the helix root just above the ear canal (on the face side), go up over the top of the ear, then down the back of the ear, and end where the rim runs into the earlobe.',
+    '- "antihelix": 7-10 points along the curved ridge inside the helix (antihelix), on the edge of that ridge that faces the ear canal, from top to bottom.',
+    'Place the points on the actual edges you see; do not invent a generic ear shape.',
+    'Reply with only JSON in this shape: {"canal":[x,y],"top":[x,y],"bottom":[x,y],"helix":[[x,y],...],"antihelix":[[x,y],...]}',
+  ].join('\n');
+  const okPt = (p) => Array.isArray(p) && p.length >= 2 && p.slice(0, 2).every((v) => isFinite(+v) && +v > -60 && +v < 1060);
+  function crop(x, y, w, h, maxD, gridOn) {
+    const k = Math.min(1, maxD / Math.max(w, h)), c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+    const kc = cv.width / PH.img.naturalWidth, g = c.getContext('2d');
+    g.drawImage(PH.img, x / kc, y / kc, w / kc, h / kc, 0, 0, c.width, c.height);   // the photo itself, never the points drawn on it
+    if (gridOn) { g.lineWidth = 1; g.font = `${Math.max(11, Math.round(c.width / 55))}px sans-serif`;
+      for (let i = 1; i < 10; i++) { const X = c.width * i / 10, Y = c.height * i / 10;
+        g.strokeStyle = 'rgba(0,230,255,.4)'; g.beginPath(); g.moveTo(X, 0); g.lineTo(X, c.height); g.moveTo(0, Y); g.lineTo(c.width, Y); g.stroke();
+        g.fillStyle = 'rgba(255,240,0,.95)'; g.fillText(String(i * 100), X + 2, 13); g.fillText(String(i * 100), 2, Y - 3); } }
+    return c;
+  }
+  const cropBlob = (...a) => new Promise((res) => crop(...a).toBlob(res, 'image/jpeg', 0.9));
+  // traced edges (image coordinates) -> the five points; returns false when they do not fit together
+  function applyTrace(canal, top, bottom, helix, anti) {
+    if (!canal || !top || !bottom || helix.length < 5 || anti.length < 3) return false;
+    const mid = (Math.min(...helix.map((p) => p.x)) + Math.max(...helix.map((p) => p.x))) / 2, sgn = canal.x > mid ? -1 : 1;   // the face is on the canal's side
+    const h1 = crossBack(helix, canal, sgn, (d) => -d);                                   // the far crossing of the rim
+    if (!h1) return false;
+    const want = 0.65 * Math.abs(h1.x - canal.x);                                          // a curled antihelix line can cross twice:
+    const h2 = crossBack(anti, canal, sgn, (d) => Math.abs(d - want));                     // take the crossing at a usual ratio
+    if (!h2) return false;
+    PH.pts = { canal, top, bottom, h1, h2 }; zoomToPoints(); return true;
+  }
+  // where the line through the canal, going backwards (sgn), crosses a traced edge; score(d) picks among crossings (lowest wins)
+  function crossBack(poly, c, sgn, score) {
+    let best = null;
+    for (let i = 0; i + 1 < poly.length; i++) {
+      const a = poly[i], b = poly[i + 1]; if ((a.y - c.y) * (b.y - c.y) > 0 || a.y === b.y) continue;
+      const x = a.x + (c.y - a.y) / (b.y - a.y) * (b.x - a.x), d = (x - c.x) * sgn;
+      if (d > 0 && (!best || score(d) < best.s)) best = { x, d, s: score(d) };
+    }
+    if (!best) for (const p of poly) { const d = (p.x - c.x) * sgn; if (d > 0 && (!best || Math.abs(p.y - c.y) < best.dy)) best = { x: p.x, d, dy: Math.abs(p.y - c.y) }; }
+    return best ? { x: best.x, y: c.y } : null;
+  }
+  function aiSay(err) {
+    const c = err && err.code;
+    if (['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed', 'images_unavailable'].includes(c)) { PH.sample = null; aiUI(); return 'AI は使えないので、自分で点を置きます。'; }
+    return c === 'cancelled' ? 'AI を止めました。自分で点を置きます。'
+      : c === 'rate_limited' ? 'AI が混み合っているので、自分で点を置きます（少し待って「うまくいかないとき」から AI に頼み直すこともできます）。'
+      : c === 'image_rejected' ? 'この写真は AI に送れませんでした。自分で点を置きます。'
+      : 'AI がうまく点を置けなかったので、自分で点を置きます。';
+  }
+  async function aiRun() {
+    if (!PH.sample || !PH.img || PH.ctl) return;
+    const ctl = PH.ctl = new AbortController(), W = cv.width, H = cv.height; aiUI(); stepPoint(0, ['AI が写真の中の耳を探しています（1/2）… 初回は、AI の使用を許可するか聞かれます。', false]);
+    try {
+      const r1 = await PH.sample.json(AI_FIND, { images: await cropBlob(0, 0, W, H, 1400, false), signal: ctl.signal, cache: false });
+      const b = r1 && r1.found !== false && Array.isArray(r1.box) ? r1.box.map(Number) : null;
+      if (!b || b.length < 4 || !b.every(isFinite) || b[2] - b[0] < 15 || b[3] - b[1] < 15) throw { code: 'no_ear' };
+      const x0 = b[0] / 1000 * W, y0 = b[1] / 1000 * H, x1 = b[2] / 1000 * W, y1 = b[3] / 1000 * H, mx = (x1 - x0) * 0.22, my = (y1 - y0) * 0.22;
+      const c = { x: Math.max(0, x0 - mx), y: Math.max(0, y0 - my) }; c.w = Math.min(W, x1 + mx) - c.x; c.h = Math.min(H, y1 + my) - c.y;
+      PH.zoomed = true; setView(c.x + c.w / 2, c.y + c.h / 2, Math.min(W / c.w, H / c.h) * 0.9);
+      msg('AI が耳の縁を読み取っています（2/2）…');
+      const r = await PH.sample.json(AI_TRACE, { images: await cropBlob(c.x, c.y, c.w, c.h, 1000, true), signal: ctl.signal, cache: false });
+      const P = (p) => ({ x: c.x + (+p[0]) / 1000 * c.w, y: c.y + (+p[1]) / 1000 * c.h });
+      const line = (a) => (Array.isArray(a) ? a.filter(okPt).map(P) : []);
+      if (!r || !okPt(r.canal) || !okPt(r.top) || !okPt(r.bottom)) throw { code: 'bad' };
+      if (ctl.signal.aborted) return;
+      if (!applyTrace(P(r.canal), P(r.top), P(r.bottom), line(r.helix), line(r.antihelix))) throw { code: 'bad' };
+      PH.ctl = null; aiUI(); stepPoint(0, ['AI が点を置きました。見本と同じ場所にあるか、1つずつ確かめてください。ずれていたら、指で動かすか矢印で直します。', false]);
+    } catch (err) {
+      PH.ctl = null; aiUI();
+      stepPoint(0, [(err && err.code === 'no_ear' ? '写真の中に耳が見つからなかったので、自分で点を置きます。' : aiSay(err)) + ' 写真の、見本と同じ場所をタップしてください。', true]);
+    } finally { if (PH.ctl === ctl) PH.ctl = null; aiUI(); }
+  }
+  $('aiBtn').onclick = () => { PH.pts = {}; $('helpBox').open = false; aiRun(); };
+
+  // ChatGPT / Gemini: the page cannot reach them, so the viewer carries the prompt there and the answer back
+  const EXT_PROMPT = [
+    'The attached photo shows a person\'s outer ear (pinna) from the side. It may have a faint cyan grid every 100 units, labelled along the top and left edges.',
+    'Use coordinates normalized 0-1000 over the WHOLE image: x from the left edge (0) to the right edge (1000), y from the top edge (0) to the bottom edge (1000).',
+    'Mark these landmarks for an acoustic model of the ear:',
+    '- canal: the centre of the ear-canal opening (the dark hole just behind the tragus).',
+    '- top: the highest point of the outer rim. bottom: the lowest point of the earlobe.',
+    '- helix: 14-20 points along the INNER edge of the outer rim (helix), in order: start at the helix root just above the ear canal (on the face side), go up over the top of the ear, then down the back of the ear, and end where the rim runs into the earlobe.',
+    '- antihelix: 7-10 points along the curved ridge inside the helix (antihelix), on the edge of that ridge that faces the ear canal, from top to bottom.',
+    'Place the points on the actual edges you see in this photo; do not invent a generic ear shape.',
+    'Reply with only this JSON and no other text:',
+    '{"canal":{"x":0,"y":0},"top":{"x":0,"y":0},"bottom":{"x":0,"y":0},"helix":[{"x":0,"y":0}],"antihelix":[{"x":0,"y":0}]}',
+  ].join('\n');
+  $('extPrompt').value = EXT_PROMPT;
+  // the picture handed to ChatGPT / Gemini: a square around the tapped ear (or the whole photo), with the grid. PH.ext is the
+  // rectangle it covers, so a pasted answer maps back onto the photo.
+  let extCenter = null, extBlob = null;
+  function extCrop(center) {
+    if (!PH.img) return;
+    if (center) extCenter = center;
+    const f = +$('extSize').value, W = cv.width, H = cv.height;
+    if (!f || !extCenter) PH.ext = { x: 0, y: 0, w: W, h: H };
+    else { const s = Math.min(W, H) * f, x = Math.max(0, Math.min(W - s, extCenter.x - s / 2)), y = Math.max(0, Math.min(H - s, extCenter.y - s / 2)); PH.ext = { x, y, w: s, h: s }; }
+    const c = crop(PH.ext.x, PH.ext.y, PH.ext.w, PH.ext.h, 1400, true);
+    $('extImg').src = c.toDataURL('image/jpeg', 0.92); extBlob = null; c.toBlob((b) => { extBlob = b; }, 'image/jpeg', 0.92);
+    photoDraw();
+    if (center) $('photoMsg').textContent = '耳のまわりを切り抜きました。黄色の枠の中が AI に送る範囲です。耳が枠からはみ出していたら、「切り抜く大きさ」を大きくしてください。';
+  }
+  $('extSize').onchange = () => extCrop(null);
+  $('extBtn').onclick = () => {
+    const box = $('extBox'), open = box.hidden; box.hidden = !open; $('extBtn').setAttribute('aria-expanded', String(open));
+    if (open && PH.img) { extCrop(null); $('photoMsg').className = 'msg'; $('photoMsg').textContent = '写真の、耳の真ん中をタップしてください。耳のまわりだけを AI に送ります。'; $('photoWrap').scrollIntoView({ block: 'nearest' }); }
+    else photoDraw();
+  };
+  let dl = null;
+  (async () => { try { dl = window.claude && window.claude.use ? await window.claude.use('downloads') : null; } catch (e) { dl = null; } $('extSave').hidden = !dl && !STANDALONE; })();
+  $('extSave').onclick = async () => {
+    if (!extBlob) return;
+    if (!dl) {                                   // an ordinary page: a normal download
+      const u = URL.createObjectURL(extBlob), a = document.createElement('a'); a.href = u; a.download = 'ear-for-ai.jpg'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000);
+      $('photoMsg').textContent = '画像を保存しました。ChatGPT か Gemini に添付してください。'; return;
+    }
+    try { await dl.save({ filename: 'ear-for-ai.jpg', data: extBlob }); $('photoMsg').textContent = '画像を保存しました。ChatGPT か Gemini に添付してください。'; }
+    catch (e) { if (e && e.code !== 'declined') $('photoMsg').textContent = '保存できませんでした。画像を長押し（PC は右クリック）して保存してください。'; }
+  };
+  $('extCopy').onclick = () => {
+    const t = $('extPrompt'), ok = () => { $('extCopy').textContent = 'コピーしました'; setTimeout(() => { $('extCopy').textContent = '頼む文をコピー'; }, 2000); };
+    const fb = () => { t.closest('details').open = true; t.focus(); t.select(); $('photoMsg').textContent = 'コピーできなかったので、文を選択しました。長押しまたは Ctrl+C でコピーしてください。'; };
+    try { navigator.clipboard.writeText(t.value).then(ok, fb); } catch (e) { fb(); }
+  };
+  function extPoint(p) {                                  // {x, y} as asked; [x, y] accepted too
+    const v = Array.isArray(p) ? p : p && typeof p === 'object' ? [p.x, p.y] : null;
+    const e = PH.ext || { x: 0, y: 0, w: cv.width, h: cv.height };
+    return v && okPt(v) ? { x: e.x + +v[0] / 1000 * e.w, y: e.y + +v[1] / 1000 * e.h } : null;
+  }
+  $('extRead').onclick = () => {
+    const raw = $('extAns').value, m = raw.match(/\{[\s\S]*\}/);
+    let r = null; try { r = m ? JSON.parse(m[0]) : null; } catch (e) { r = null; }
+    if (!PH.img) return msg('先に耳の写真を選んでください。', true);
+    if (!r) return msg('答えの中に { から } までの部分が見つかりませんでした。AI の答えを丸ごとコピーして貼り付けてください。', true);
+    const line = (a) => (Array.isArray(a) ? a.map(extPoint).filter(Boolean) : []);
+    if (!applyTrace(extPoint(r.canal), extPoint(r.top), extPoint(r.bottom), line(r.helix), line(r.antihelix)))
+      return msg('答えに足りない点がありました。もう一度 AI に頼むか、「点を消して、自分で置く」を押してください。', true);
+    $('helpBox').open = false;
+    stepPoint(0, ['貼り付けた答えから点を置きました。見本と同じ場所にあるか、1つずつ確かめてください。', false]);
+    $('sPoints').scrollIntoView({ block: 'start' });
+  };
+  $('aiStop').onclick = () => { if (PH.ctl) PH.ctl.abort(); };
+  (async () => {
+    try {
+      const s = window.claude && window.claude.use ? await window.claude.use('sample') : null;
+      const lim = s ? await s.limits().catch(() => null) : null;
+      if (s && lim && lim.images) PH.sample = s;
+    } catch (e) { /* no AI here: tapping still works */ }
+    $('photoHint').textContent = PH.sample
+      ? '写真を選ぶと、AI が耳に点を5つ置きます。あなたは、見本と同じ場所にあるかを確かめるだけです。写真は AI に見せるときだけ送られます。'
+      : '写真を選んだら、見本を見ながら耳に点を5つ置きます。写真は端末から出ません。';
+    aiUI();
+  })();
+
+  // ---------- result, fine tuning, output ----------
+  const SL = { n1: [4500, 11500], n2: [7000, 16500] };
+  const toSl = (k, f) => Math.round(1000 * Math.log(f / SL[k][0]) / Math.log(SL[k][1] / SL[k][0]));
+  const fromSl = (k, v) => SL[k][0] * Math.pow(SL[k][1] / SL[k][0], v / 1000);
+  function setSliders() { $('n1Sl').value = toSl('n1', cur.n1); $('n2Sl').value = toSl('n2', cur.n2); }
+  $('n1Sl').oninput = () => { cur.n1 = fromSl('n1', +$('n1Sl').value); store.n1 = cur.n1; save(); refresh(); };
+  $('n2Sl').oninput = () => { cur.n2 = fromSl('n2', +$('n2Sl').value); store.n2 = cur.n2; save(); refresh(); };
+  $('playNow').onclick = () => { try { playSeq([[cur.n1, cur.n2]], q(), mode()); } catch (e) { $('outMsg').textContent = e.message; } };
+  $('cmpInit').onclick = async () => {
+    try { ensureCtx(); } catch (e) { $('outMsg').textContent = e.message; return; }
+    $('outMsg').textContent = '最初の値 → いまの値 の順に鳴らしています…';
+    if (await playSeq([[initN1(), initN2()], [cur.n1, cur.n2]], q(), mode())) $('outMsg').textContent = '先が最初の値、あとがいまの値です。';
+  };
+
+  function eqTextFor(n1, n2) {
+    const g = gainsFor(n1, n2, q(), 60), mx = Math.max(0, ...g);
+    const line = 'GraphicEQ: ' + EQF.map((f, i) => `${f} ${g[i].toFixed(1)}`).join('; ');
+    return [
+      `# N1/N2 tuner: N1 ${Math.round(n1)} Hz (${DEPTH1} dB), N2 ${Math.round(n2)} Hz (${DEPTH2} dB), notch Q=${q()}`,
+      '# speakers +-30 deg, near ear; spherical head (Brown & Duda, a = 90 mm); diffuse-field equalized',
+      `Preamp: ${(-mx).toFixed(1)} dB`, 'Channel: L', line, 'Channel: R', line, 'Channel: all', '',
+    ].join('\r\n');
+  }
+  const b64url = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+  async function packText(text) {
+    if (typeof CompressionStream === 'function') {
+      try { const st = new Blob([text]).stream().pipeThrough(new CompressionStream('deflate-raw')); return { b: b64url(new Uint8Array(await new Response(st).arrayBuffer())), z: 1 }; } catch (e) { /* fall through */ }
+    }
+    return { b: b64url(new TextEncoder().encode(text)), z: 0 };
+  }
+  let linkTok = 0;
+  async function refresh() {
+    $('n1Out').textContent = fmt(cur.n1); $('n2Out').textContent = fmt(cur.n2);
+    const i1 = $('n1Init').value ? initN1() : null, i2 = $('n2Init').value ? initN2() : null;
+    if (cur.done) {
+      $('n1Val').textContent = fmt(cur.n1); $('n2Val').textContent = fmt(cur.n2);
+      const src = cur.src || store.src;
+      const d = (k, init) => [src === 'listen' && init ? `写真の値との差 ${oct(cur[k], init) >= 0 ? '+' : ''}${oct(cur[k], init).toFixed(2)} oct` : '',
+        Number.isFinite(cur[k + 'Spread']) ? `2回の答えのずれ ${cur[k + 'Spread'].toFixed(2)} oct` : ''].filter(Boolean).join('　');
+      $('n1Diff').textContent = d('n1', i1) || (src === 'photo' ? '写真から' : '調整した値'); $('n2Diff').textContent = d('n2', i2) || (src === 'photo' ? '写真から' : '調整した値');
+      // plain-language verdict: the 54-ear range, and how steady the listening answers were
+      const inR = (v, lo, hi) => v >= lo * 0.92 && v <= hi * 1.08, typical = inR(cur.n1, N1_LO, N1_HI) && inR(cur.n2, N2_LO, N2_HI);
+      const shaky = ['n1Spread', 'n2Spread'].some((k) => Number.isFinite(cur[k]) && cur[k] > 0.15 + 1e-6);
+      const v = $('verdict');
+      v.className = typical && !shaky ? 'verdict' : 'verdict warn';
+      v.textContent = !typical ? '日本人の大人の耳でよくある範囲から外れています。写真の点を確かめるか、聴いて仕上げてください。'
+        : shaky ? '聴き比べの2回の答えが少し違いました。もう一度聴き比べると、より確かになります。このまま使っても構いません。'
+        : src === 'listen' ? '聴き比べで決めた値です。日本人の大人の耳でよくある範囲に入っています。「ExoSpace で使う」を押してください。'
+        : '日本人の大人の耳でよくある範囲に入っています。まず「ExoSpace で使う」で聴いてみてください。';
+    }
+    const text = eqTextFor(cur.n1, cur.n2); $('eqText').value = text;
+    drawPlot();
+    const tok = ++linkTok, { b, z } = await packText(text); if (tok !== linkTok) return;
+    let base = ($('appUrl').value || '').trim(); store.url = base; save();
+    if (!/^https?:\/\//.test(base)) { $('sendLink').removeAttribute('href'); $('outMsg').textContent = 'ExoSpace の場所に https:// から始まる URL を入れてください。'; return; }
+    base = base.split('#')[0];
+    const name = `N1-${Math.round(cur.n1)}_N2-${Math.round(cur.n2)}_Q${q()}`;
+    $('sendLink').href = `${base}#hrtf=${b}&n=${encodeURIComponent(name)}&z=${z}`;
+    $('outMsg').textContent = '押すと ExoSpace が新しいタブで開き、この HRTF が読み込まれてオンになります。';
+  }
+  $('appUrl').onchange = refresh;
+  $('copyBtn').onclick = () => {
+    const t = $('eqText'); const done = () => { $('outMsg').textContent = 'GraphicEQ をコピーしました。ExoSpace の「HRTF」欄に貼り付けても使えます。'; };
+    const fallback = () => { t.closest('details').open = true; t.focus(); t.select(); $('outMsg').textContent = 'コピーできなかったので、テキストを選択しました。長押しまたは Ctrl+C でコピーしてください。'; };
+    try { navigator.clipboard.writeText(t.value).then(done, fallback); } catch (e) { fallback(); }
+  };
+
+  // ---------- save the HRTF as a file, and read such a file back ----------
+  const fileName = () => `ExoSpace-HRTF_N1-${Math.round(cur.n1)}_N2-${Math.round(cur.n2)}_Q${q()}.txt`;
+  $('saveBtn').onclick = async () => {
+    const text = eqTextFor(cur.n1, cur.n2), name = fileName(), msg = $('outMsg');
+    const manual = () => { const t = $('eqText'); t.closest('details').open = true; msg.textContent = '保存できませんでした。下の文字を「GraphicEQ をコピー」でコピーして、メモなどに貼っておいてください。'; };
+    if (dl) {                                    // inside claude.ai: the page asks the viewer, who may decline
+      try { await dl.save({ filename: name, data: text }); msg.textContent = `「${name}」を保存しました。ExoSpace の「HRTFファイルを選ぶ」で選べます。`; }
+      catch (e) { if (e && e.code === 'declined') msg.textContent = '保存をやめました。'; else manual(); }
+      return;
+    }
+    try {                                        // an ordinary page: a normal download
+      const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' })), a = document.createElement('a');
+      a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+      msg.textContent = `「${name}」を保存しました（ダウンロード先を見てください）。`;
+    } catch (e) { manual(); }
+  };
+  $('copyLinkBtn').onclick = async () => {
+    const href = $('sendLink').getAttribute('href'), msg = $('outMsg'), box = $('linkText');
+    if (!href || href === '#') { msg.textContent = 'ExoSpace の場所（詳細設定）を確かめてください。'; return; }
+    try { await navigator.clipboard.writeText(href); box.hidden = true; msg.textContent = 'リンクをコピーしました。メールや LINE で自分に送り、別の端末で開くと、ExoSpace にこの HRTF が読み込まれます。'; }
+    catch (e) { box.value = href; box.hidden = false; box.focus(); box.select(); msg.textContent = 'コピーできなかったので、下にリンクを出しました。選んでコピーしてください。'; }
+  };
+  $('loadFile').onclick = () => $('fileIn').click();
+  $('fileIn').onchange = async () => {
+    const f = $('fileIn').files[0], say = $('fileMsg'); $('fileIn').value = ''; if (!f) return;
+    let t = ''; try { t = await f.text(); } catch (e) { /* unreadable */ }
+    const m1 = /N1\s+(\d{4,5})\s*Hz/.exec(t), m2 = /N2\s+(\d{4,5})\s*Hz/.exec(t), mq = /Q\s*=\s*(\d+)/.exec(t);
+    const n1 = m1 ? +m1[1] : 0, n2 = m2 ? +m2[1] : 0;
+    if (!(n1 >= 3000 && n1 <= 16000 && n2 >= 5000 && n2 <= 18000 && n2 > n1)) {
+      say.className = 'msg warn'; say.textContent = 'このツールで保存したファイルではないようです。ほかの HRTF ファイルは、ExoSpace の「HRTFファイルを選ぶ」から直接読み込めます。'; return;
+    }
+    cur.n1 = n1; cur.n2 = n2; cur.n1Spread = cur.n2Spread = undefined; cur.done = true; cur.src = 'file';
+    if (mq && ['4', '8', '16'].includes(mq[1])) { $('qSel').value = mq[1]; store.q = +mq[1]; }
+    store.n1 = n1; store.n2 = n2; store.src = 'file'; save(); setSliders(); say.className = 'msg'; say.textContent = '';
+    await refresh(); showStep('result'); $('outMsg').textContent = `「${f.name}」を読み込みました。「ExoSpace で使う」か、「聴いて仕上げる」で続けられます。`;
+  };
+
+  function drawPlot() {
+    const cv = $('plot'), r = cv.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (!r.width) return;
+    cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+    const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const cs = getComputedStyle(document.documentElement), col = (n) => cs.getPropertyValue(n).trim();
+    const W = r.width, H = r.height, L = 38, R = 10, Tp = 10, B = 24, F0 = 1000, F1 = 20000, D0 = -18, D1 = 6;
+    const X = (f) => L + (W - L - R) * Math.log(f / F0) / Math.log(F1 / F0), Y = (d) => Tp + (H - Tp - B) * (D1 - d) / (D1 - D0);
+    c.clearRect(0, 0, W, H); c.font = `11px ${col('--f-mono') || 'monospace'}`; c.lineWidth = 1;
+    c.strokeStyle = col('--line'); c.fillStyle = col('--muted'); c.textAlign = 'center';
+    for (const f of [1000, 2000, 5000, 10000, 20000]) { c.beginPath(); c.moveTo(X(f), Tp); c.lineTo(X(f), H - B); c.stroke(); c.fillText(f >= 1000 ? f / 1000 + 'k' : String(f), X(f), H - 7); }
+    c.textAlign = 'right';
+    for (const d of [6, 0, -6, -12, -18]) { c.beginPath(); c.moveTo(L, Y(d)); c.lineTo(W - R, Y(d)); c.stroke(); c.fillText(String(d), L - 6, Y(d) + 4); }
+    const g = gainsFor(cur.n1, cur.n2, q(), 60), ap = applied(g, mode());
+    const path = (fn) => { c.beginPath(); for (let i = 0; i <= 300; i++) { const f = F0 * Math.pow(F1 / F0, i / 300), y = Y(Math.max(D0, Math.min(D1, fn(f)))); if (i) c.lineTo(X(f), y); else c.moveTo(X(f), y); } c.stroke(); };
+    c.setLineDash([5, 4]); c.strokeStyle = col('--muted'); c.lineWidth = 1.2; path((f) => hrInterp(f, EQF, g)); c.setLineDash([]);
+    c.strokeStyle = col('--accent'); c.lineWidth = 2.2; path(ap);
+    for (const [f, k] of [[cur.n1, '--n1'], [cur.n2, '--n2']]) { c.strokeStyle = col(k); c.lineWidth = 1.5; c.beginPath(); c.moveTo(X(f), Tp); c.lineTo(X(f), H - B); c.stroke(); }
+  }
+  window.addEventListener('resize', drawPlot);
+
+  progressDraw(); setSliders(); refresh();
+  $('prevRes').hidden = !cur.done; showStep('photo', true);
+  window.__n1n2 = { step: () => [stepNow, key()], toClient: (x, y) => { const r = cv.getBoundingClientRect(), s = S({ x, y }); return { x: r.left + s.x / cv.width * r.width, y: r.top + s.y / cv.height * r.height }; }, zoom: () => Z(), pts: () => PH.pts, gainsFor, applied, eqTextFor, grid, curveDb, minPhaseFir, levelDb, narrow, pickPair: (s) => { const span = s.hi - s.lo; if (span >= 3) { const t = Math.floor(span / 3); return [s.lo + t, s.hi - t]; } return [s.lo, s.hi]; }, T, cur, EQF };   // for tests
+})();
+</script>
+<script>if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));}</script>
+</body></html>
