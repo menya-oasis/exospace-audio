@@ -132,6 +132,24 @@ details.help { border-top: 1px solid var(--line); padding-top: 10px; display: gr
 details.help[open] { gap: 10px; }
 details .inner { display: grid; gap: 12px; margin-top: 12px; }
 .verdict { font-size: .95rem; }
+.earpick { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; min-width: 0; }
+.earpick legend { font-weight: 700; padding: 0; margin-bottom: 6px; }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg label { flex: 1 1 7em; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg span { display: block; text-align: center; padding: 10px 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); cursor: pointer; font-weight: 500; }
+.seg input:checked + span { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); box-shadow: inset 0 0 0 1px var(--accent); }
+.seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.earline { font-size: .9rem; margin: 0; padding: 8px 12px; border-radius: 9px; background: var(--sunk); }
+.earline:empty { display: none; }
+.qpick { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 10px; margin: 4px 0 0; display: grid; gap: 8px; min-width: 0; }
+.qpick legend { font-weight: 700; padding: 0 6px; }
+.qopt { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; row-gap: 2px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); cursor: pointer; }
+.qopt:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.qopt input { grid-row: 1 / span 2; margin-top: 4px; accent-color: var(--accent); width: 18px; height: 18px; }
+.qopt .qt { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.qopt .tag { font-size: .75rem; padding: 1px 8px; border-radius: 99px; background: var(--accent); color: var(--accent-ink); }
+.qopt .qd { font-size: .86rem; color: var(--muted); }
 .verdict.warn { color: var(--warn); }
 .next { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
 details.card > summary { font-weight: 600; }
@@ -162,8 +180,18 @@ details.card > summary { font-weight: 600; }
         <li>誰かに撮ってもらうと楽です。自撮りなら、鏡ではなくカメラで。</li>
       </ul>
     </div>
+    <fieldset class="earpick" id="earPick">
+      <legend>どちらの耳を撮りましたか</legend>
+      <div class="seg">
+        <label><input type="radio" name="ear" value="R"><span>右耳だけ</span></label>
+        <label><input type="radio" name="ear" value="L"><span>左耳だけ</span></label>
+        <label><input type="radio" name="ear" value="both"><span>両耳（1枚ずつ）</span></label>
+      </div>
+      <p class="cap" id="earNote"></p>
+    </fieldset>
     <div class="row">
       <label class="btn primary big" for="photoIn" id="photoLbl" tabindex="0">写真を選ぶ</label>
+      <label class="btn big" for="photoIn" id="photoLblL" tabindex="0" hidden>左耳の写真を選ぶ</label>
       <input type="file" id="photoIn" accept="image/jpeg,image/png,image/webp" hidden>
     </div>
     <p class="cap" id="photoHint">写真を選ぶと、次に点を5つ確かめます。</p>
@@ -236,7 +264,17 @@ details.card > summary { font-weight: 600; }
       <div class="val n1"><span class="k">N1（1つ目の谷）</span><span class="v" id="n1Val">—</span><span class="d" id="n1Diff"></span></div>
       <div class="val n2"><span class="k">N2（2つ目の谷）</span><span class="v" id="n2Val">—</span><span class="d" id="n2Diff"></span></div>
     </div>
+    <p class="earline" id="earLine"></p>
     <p class="verdict" id="verdict"></p>
+    <fieldset class="qpick" id="qPick">
+      <legend>谷の幅を選ぶ</legend>
+      <label class="qopt"><input type="radio" name="qPick" value="8"><span class="qt"><b>Q8　ふつう</b><span class="tag">おすすめ</span></span>
+        <span class="qd">谷が広めです。値が少しずれていても効きやすいので、まずはこちら。</span></label>
+      <label class="qopt"><input type="radio" name="qPick" value="16"><span class="qt"><b>Q16　細め</b></span>
+        <span class="qd">谷が細く鋭くなります。音色の変わり方は小さいですが、値が合っていないと効きにくくなります。Q8 で音がこもる・高音が欠けると感じたときに。</span></label>
+      <div class="row"><button class="btn" id="qCmp" type="button">Q8 → Q16 の順に鳴らす</button></div>
+      <p class="cap">どちらを選んでも、谷の位置（N1・N2）と深さは同じで、変わるのは幅だけです。ExoSpace の「掛け方」が「音色を保つ」のときは、Q16 の谷は浅めに均されます。違いをはっきり聴くなら、ExoSpace で「PC版と同じ」にしてください。</p>
+    </fieldset>
     <div class="row"><a class="btn primary big" id="sendLink" href="#" target="_blank" rel="noopener">ExoSpace で使う</a></div>
     <div class="row">
       <button class="btn big" id="saveBtn" type="button">ファイルに保存（.txt）</button>
@@ -482,7 +520,13 @@ details.card > summary { font-weight: 600; }
   if (store.q) $('qSel').value = String(store.q); if (store.mode) $('modeSel').value = store.mode; if (store.url) $('appUrl').value = store.url;
   if (STANDALONE) $('appUrl').value = new URL('./', location.href).href;   // the app sits next to this page
   $('vol').value = store.vol; $('volOut').textContent = store.vol + ' dB';
-  let cur = { n1: store.n1 || initN1(), n2: store.n2 || initN2(), done: !!store.n1 };
+  let cur = { n1: store.n1 || initN1(), n2: store.n2 || initN2(), done: !!store.n1, side: store.side || null, o: store.o || null };
+  // Which ear: 'R' / 'L' (one photo, the same values for both ears) or 'both' (one photo each). With both, the big numbers are the
+  // right ear and cur.o holds the left; tuning by ear or slider moves both and keeps the difference between them.
+  const EAR = () => store.ear || 'R';
+  const BV = store.bv || (store.bv = { R: null, L: null });
+  const setMain = (k, v) => { if (cur.o && cur[k] > 0) cur.o[k] *= v / cur[k]; cur[k] = v; store.o = cur.o; };
+  const sideJa = (x) => (x === 'L' ? '左耳' : '右耳');
 
   // ---------- listening procedure ----------
   // Each value: 6 candidates 0.15 oct apart, narrowed by 3 comparisons (thirds, then the last pair), done twice.
@@ -537,14 +581,14 @@ details.card > summary { font-weight: 600; }
     T.wins[T.param].push(result);
     if (T.round === 1) { beginParam(T.param, 2); present(); return; }
     const [w1, w2] = T.wins[T.param], val = Math.sqrt(w1 * w2);
-    cur[T.param] = val; cur[T.param + 'Spread'] = Math.abs(oct(w1, w2));
+    setMain(T.param, val); cur[T.param + 'Spread'] = Math.abs(oct(w1, w2));
     if (T.param === 'n1') { beginParam('n2', 1); present(); return; }
     finish();
   }
   function finish() {
     T.on = false; T.pend = null; setAB(false); progressDraw();
     $('stepLabel').innerHTML = '<b>終わりました</b>';
-    cur.done = true; cur.src = 'listen'; store.n1 = cur.n1; store.n2 = cur.n2; store.src = 'listen'; save();
+    cur.done = true; cur.src = 'listen'; store.n1 = cur.n1; store.n2 = cur.n2; store.o = cur.o; store.src = 'listen'; save();
     $('listenMsg').textContent = '';
     showStep('result');
   }
@@ -684,14 +728,15 @@ details.card > summary { font-weight: 600; }
   function demoSvg(svg, key) {
     if (!svg) return;
     if (!svg.dataset.ready) { if (!DEMO_URL) { try { DEMO_URL = DemoEar.dataURL(); } catch (e) { return; } }
-      svg.innerHTML = `<image href="${DEMO_URL}" width="${DemoEar.W}" height="${DemoEar.H}"/><g class="ov"></g>`; svg.dataset.ready = '1'; }
+      svg.innerHTML = `<g class="flip"><image href="${DEMO_URL}" width="${DemoEar.W}" height="${DemoEar.H}"/><g class="ov"></g></g>`; svg.dataset.ready = '1'; }
+    const sd = svg.id === 'tipSvg' ? nextSide : (PH.side || nextSide);   // the sample is a right ear: mirror it for the left
+    svg.querySelector('.flip').setAttribute('transform', sd === 'L' ? `translate(${DemoEar.W},0) scale(-1,1)` : '');
     const G = GUIDE, line = key === 'h1' || key === 'h2' || key === 'canal';
     let s = line ? `<line x1="10" y1="${G.canal.y}" x2="510" y2="${G.canal.y}" stroke="#fff" stroke-width="5" stroke-dasharray="16 12" opacity=".9"/>` : '';
     for (const k of ORDER) { if (!key || k === key) continue; const p = G[k]; s += `<circle cx="${p.x}" cy="${p.y}" r="13" fill="${PT[k].col}" stroke="#fff" stroke-width="4" opacity=".55"/>`; }
     if (key) { const p = G[key]; s += `<circle class="ring" cx="${p.x}" cy="${p.y}" r="40" fill="none" stroke="#ffd84a" stroke-width="10"/><circle cx="${p.x}" cy="${p.y}" r="24" fill="${PT[key].col}" stroke="#fff" stroke-width="6"/>`; }
     svg.querySelector('.ov').innerHTML = s;
   }
-  demoSvg($('tipSvg'), null);
 
   // ---------- steps ----------
   const SECTIONS = { photo: 'sPhoto', points: 'sPoints', result: 'sResult', listen: 'sListen' };
@@ -847,12 +892,41 @@ details.card > summary { font-weight: 600; }
     usePhotoValues();
   };
   function usePhotoValues() {
-    $('n1Init').value = Math.round(PH.n1 / 10) * 10; $('n2Init').value = Math.round(PH.n2 / 10) * 10;
-    store.n1Init = $('n1Init').value; store.n2Init = $('n2Init').value;
-    cur.n1 = PH.n1; cur.n2 = PH.n2; cur.n1Spread = cur.n2Spread = undefined; cur.done = true; cur.src = 'photo';
-    store.n1 = cur.n1; store.n2 = cur.n2; store.src = 'photo'; save();
+    const side = PH.side || 'R', both = EAR() === 'both';
+    if (both) BV[side] = { n1: PH.n1, n2: PH.n2 };
+    const main = both ? BV.R : { n1: PH.n1, n2: PH.n2 };
+    if (main) { $('n1Init').value = Math.round(main.n1 / 10) * 10; $('n2Init').value = Math.round(main.n2 / 10) * 10; store.n1Init = $('n1Init').value; store.n2Init = $('n2Init').value; }
+    if (both && (!BV.R || !BV.L)) {                      // one ear done: ask for the other
+      save(); earUI(); showStep('photo');
+      $('photoHint').className = 'cap'; $('photoHint').textContent = `${sideJa(side)}ができました。次は${sideJa(side === 'R' ? 'L' : 'R')}の写真を選んでください。`;
+      return;
+    }
+    cur.n1 = main.n1; cur.n2 = main.n2; cur.n1Spread = cur.n2Spread = undefined; cur.done = true; cur.src = 'photo';
+    cur.side = both ? 'both' : side; cur.o = both ? { n1: BV.L.n1, n2: BV.L.n2 } : null;
+    store.n1 = cur.n1; store.n2 = cur.n2; store.src = 'photo'; store.side = cur.side; store.o = cur.o; save(); earUI();
     showStep('result');
   }
+  // the ear choice on step 1: which photo comes next, the buttons, and a mirrored sample for the left ear
+  let nextSide = 'R';
+  function earUI() {
+    const e = EAR(), both = e === 'both';
+    for (const r of document.querySelectorAll('input[name=ear]')) r.checked = r.value === e;
+    if (!both) nextSide = e; else nextSide = !BV.R ? 'R' : !BV.L ? 'L' : nextSide;
+    const lr = $('photoLbl'), ll = $('photoLblL'); ll.hidden = !both;
+    if (both) {
+      lr.textContent = '右耳の写真を選ぶ' + (BV.R ? ' ✓' : ''); ll.textContent = '左耳の写真を選ぶ' + (BV.L ? ' ✓' : '');
+      lr.classList.toggle('primary', nextSide === 'R'); ll.classList.toggle('primary', nextSide === 'L');
+      $('earNote').textContent = '右耳と左耳を1枚ずつ撮り、それぞれ点を確かめます。左右で違う値になります。' + (BV.R && BV.L ? '（両方できています）' : BV.R ? '（右耳はできています）' : BV.L ? '（左耳はできています）' : '');
+    } else {
+      lr.textContent = e === 'L' ? '左耳の写真を選ぶ' : '右耳の写真を選ぶ'; lr.classList.add('primary');
+      $('earNote').textContent = `${sideJa(e)}の写真1枚から作り、左右の耳に同じ値を使います。左右で耳の形が違うと感じるなら「両耳」を選んでください。`;
+    }
+    demoSvg($('tipSvg'), null);
+  }
+  for (const r of document.querySelectorAll('input[name=ear]')) r.onchange = () => { if (!r.checked) return; store.ear = r.value; save(); earUI(); };
+  $('photoLbl').addEventListener('click', () => { if (EAR() === 'both') nextSide = 'R'; });
+  $('photoLblL').addEventListener('click', () => { nextSide = 'L'; });
+  $('photoLblL').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); nextSide = 'L'; $('photoIn').click(); } });
   $('earMm').onchange = () => { photoDraw(); };
   $('photoLbl').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('photoIn').click(); } });
   $('photoIn').addEventListener('change', async () => {
@@ -862,7 +936,7 @@ details.card > summary { font-weight: 600; }
     img.onload = () => {
       const k = Math.min(1, 1400 / Math.max(img.naturalWidth, img.naturalHeight));
       cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k);
-      PH.img = img; PH.pts = {}; PH.n1 = PH.n2 = 0; extCenter = null; PH.ext = null; PH.zoomed = false; V = { x: 0, y: 0, w: cv.width, h: cv.height };
+      PH.img = img; PH.side = nextSide; PH.pts = {}; PH.n1 = PH.n2 = 0; extCenter = null; PH.ext = null; PH.zoomed = false; V = { x: 0, y: 0, w: cv.width, h: cv.height };
       showStep('points'); aiUI(); stepPoint(0);
       if (!$('extBox').hidden) extCrop(null);
       if (PH.sample) aiRun();
@@ -873,7 +947,7 @@ details.card > summary { font-weight: 600; }
   });
   $('tapBtn').onclick = () => { if (PH.ctl) PH.ctl.abort(); PH.pts = {}; $('helpBox').open = false; stepPoint(0); };
   $('goListen').onclick = () => showStep('listen');
-  $('goListenNoPhoto').onclick = () => showStep('listen');
+  $('goListenNoPhoto').onclick = () => { cur.side = null; cur.o = null; store.side = null; store.o = null; save(); showStep('listen'); };   // no photo: no ear to name
   $('goPoints').onclick = () => { if (PH.img) { showStep('points'); stepPoint(0); } else showStep('photo'); };
   $('goPhoto').onclick = () => showStep('photo');
   $('showPrev').onclick = () => showStep('result');
@@ -1043,8 +1117,8 @@ details.card > summary { font-weight: 600; }
   const toSl = (k, f) => Math.round(1000 * Math.log(f / SL[k][0]) / Math.log(SL[k][1] / SL[k][0]));
   const fromSl = (k, v) => SL[k][0] * Math.pow(SL[k][1] / SL[k][0], v / 1000);
   function setSliders() { $('n1Sl').value = toSl('n1', cur.n1); $('n2Sl').value = toSl('n2', cur.n2); }
-  $('n1Sl').oninput = () => { cur.n1 = fromSl('n1', +$('n1Sl').value); store.n1 = cur.n1; save(); refresh(); };
-  $('n2Sl').oninput = () => { cur.n2 = fromSl('n2', +$('n2Sl').value); store.n2 = cur.n2; save(); refresh(); };
+  $('n1Sl').oninput = () => { setMain('n1', fromSl('n1', +$('n1Sl').value)); store.n1 = cur.n1; save(); refresh(); };
+  $('n2Sl').oninput = () => { setMain('n2', fromSl('n2', +$('n2Sl').value)); store.n2 = cur.n2; save(); refresh(); };
   $('playNow').onclick = () => { try { playSeq([[cur.n1, cur.n2]], q(), mode()); } catch (e) { $('outMsg').textContent = e.message; } };
   $('cmpInit').onclick = async () => {
     try { ensureCtx(); } catch (e) { $('outMsg').textContent = e.message; return; }
@@ -1052,15 +1126,20 @@ details.card > summary { font-weight: 600; }
     if (await playSeq([[initN1(), initN2()], [cur.n1, cur.n2]], q(), mode())) $('outMsg').textContent = '先が最初の値、あとがいまの値です。';
   };
 
-  function eqTextFor(n1, n2) {
-    const g = gainsFor(n1, n2, q(), 60), mx = Math.max(0, ...g);
-    const line = 'GraphicEQ: ' + EQF.map((f, i) => `${f} ${g[i].toFixed(1)}`).join('; ');
+  // n1, n2: the ear in the photo (the right ear when both); o: the left ear's {n1, n2} when both ears were photographed
+  function eqTextFor(n1, n2, o, side) {
+    const gR = gainsFor(n1, n2, q(), 60), gL = o ? gainsFor(o.n1, o.n2, q(), 60) : gR, mx = Math.max(0, ...gR, ...gL);
+    const ln = (g) => 'GraphicEQ: ' + EQF.map((f, i) => `${f} ${g[i].toFixed(1)}`).join('; ');
+    const who = o ? '# right ear (channel R) above; left ear (channel L): ' + `N1 ${Math.round(o.n1)} Hz, N2 ${Math.round(o.n2)} Hz`
+      : side === 'L' || side === 'R' ? `# measured: ${side === 'L' ? 'left' : 'right'} ear photo, used for both ears` : null;
     return [
-      `# N1/N2 tuner: N1 ${Math.round(n1)} Hz (${DEPTH1} dB), N2 ${Math.round(n2)} Hz (${DEPTH2} dB), notch Q=${q()}`,
+      `# N1/N2 tuner: N1 ${Math.round(n1)} Hz (${DEPTH1} dB), N2 ${Math.round(n2)} Hz (${DEPTH2} dB), notch Q=${q()}`, who,
       '# speakers +-30 deg, near ear; spherical head (Brown & Duda, a = 90 mm); diffuse-field equalized',
-      `Preamp: ${(-mx).toFixed(1)} dB`, 'Channel: L', line, 'Channel: R', line, 'Channel: all', '',
-    ].join('\r\n');
+      `Preamp: ${(-mx).toFixed(1)} dB`, 'Channel: L', ln(gL), 'Channel: R', ln(gR), 'Channel: all', '',
+    ].filter((x) => x !== null).join('\r\n');
   }
+  const hrName = () => cur.o ? `R${Math.round(cur.n1)}-${Math.round(cur.n2)}_L${Math.round(cur.o.n1)}-${Math.round(cur.o.n2)}_Q${q()}`
+    : `N1-${Math.round(cur.n1)}_N2-${Math.round(cur.n2)}_Q${q()}` + (cur.side === 'L' ? '_L' : cur.side === 'R' ? '_R' : '');
   const b64url = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
   async function packText(text) {
     if (typeof CompressionStream === 'function') {
@@ -1070,16 +1149,19 @@ details.card > summary { font-weight: 600; }
   }
   let linkTok = 0;
   async function refresh() {
+    for (const r of document.querySelectorAll('input[name=qPick]')) r.checked = +r.value === q();
     $('n1Out').textContent = fmt(cur.n1); $('n2Out').textContent = fmt(cur.n2);
     const i1 = $('n1Init').value ? initN1() : null, i2 = $('n2Init').value ? initN2() : null;
     if (cur.done) {
+      $('earLine').textContent = cur.o ? `上の数字は右耳です。左耳は N1 ${fmt(cur.o.n1)}・N2 ${fmt(cur.o.n2)}。左右それぞれの値で作ります。`
+        : cur.side === 'L' || cur.side === 'R' ? `${sideJa(cur.side)}の写真から作りました。左右の耳に同じ値を使います。` : '';
       $('n1Val').textContent = fmt(cur.n1); $('n2Val').textContent = fmt(cur.n2);
       const src = cur.src || store.src;
       const d = (k, init) => [src === 'listen' && init ? `写真の値との差 ${oct(cur[k], init) >= 0 ? '+' : ''}${oct(cur[k], init).toFixed(2)} oct` : '',
         Number.isFinite(cur[k + 'Spread']) ? `2回の答えのずれ ${cur[k + 'Spread'].toFixed(2)} oct` : ''].filter(Boolean).join('　');
       $('n1Diff').textContent = d('n1', i1) || (src === 'photo' ? '写真から' : '調整した値'); $('n2Diff').textContent = d('n2', i2) || (src === 'photo' ? '写真から' : '調整した値');
       // plain-language verdict: the 54-ear range, and how steady the listening answers were
-      const inR = (v, lo, hi) => v >= lo * 0.92 && v <= hi * 1.08, typical = inR(cur.n1, N1_LO, N1_HI) && inR(cur.n2, N2_LO, N2_HI);
+      const inR = (v, lo, hi) => v >= lo * 0.92 && v <= hi * 1.08, typical = inR(cur.n1, N1_LO, N1_HI) && inR(cur.n2, N2_LO, N2_HI) && (!cur.o || (inR(cur.o.n1, N1_LO, N1_HI) && inR(cur.o.n2, N2_LO, N2_HI)));
       const shaky = ['n1Spread', 'n2Spread'].some((k) => Number.isFinite(cur[k]) && cur[k] > 0.15 + 1e-6);
       const v = $('verdict');
       v.className = typical && !shaky ? 'verdict' : 'verdict warn';
@@ -1088,13 +1170,13 @@ details.card > summary { font-weight: 600; }
         : src === 'listen' ? '聴き比べで決めた値です。日本人の大人の耳でよくある範囲に入っています。「ExoSpace で使う」を押してください。'
         : '日本人の大人の耳でよくある範囲に入っています。まず「ExoSpace で使う」で聴いてみてください。';
     }
-    const text = eqTextFor(cur.n1, cur.n2); $('eqText').value = text;
+    const text = eqTextFor(cur.n1, cur.n2, cur.o, cur.side); $('eqText').value = text;
     drawPlot();
     const tok = ++linkTok, { b, z } = await packText(text); if (tok !== linkTok) return;
     let base = ($('appUrl').value || '').trim(); store.url = base; save();
     if (!/^https?:\/\//.test(base)) { $('sendLink').removeAttribute('href'); $('outMsg').textContent = 'ExoSpace の場所に https:// から始まる URL を入れてください。'; return; }
     base = base.split('#')[0];
-    const name = `N1-${Math.round(cur.n1)}_N2-${Math.round(cur.n2)}_Q${q()}`;
+    const name = hrName();
     $('sendLink').href = `${base}#hrtf=${b}&n=${encodeURIComponent(name)}&z=${z}`;
     $('outMsg').textContent = '押すと ExoSpace が新しいタブで開き、この HRTF が読み込まれてオンになります。';
   }
@@ -1106,9 +1188,9 @@ details.card > summary { font-weight: 600; }
   };
 
   // ---------- save the HRTF as a file, and read such a file back ----------
-  const fileName = () => `ExoSpace-HRTF_N1-${Math.round(cur.n1)}_N2-${Math.round(cur.n2)}_Q${q()}.txt`;
+  const fileName = () => `ExoSpace-HRTF_${hrName()}.txt`;
   $('saveBtn').onclick = async () => {
-    const text = eqTextFor(cur.n1, cur.n2), name = fileName(), msg = $('outMsg');
+    const text = eqTextFor(cur.n1, cur.n2, cur.o, cur.side), name = fileName(), msg = $('outMsg');
     const manual = () => { const t = $('eqText'); t.closest('details').open = true; msg.textContent = '保存できませんでした。下の文字を「GraphicEQ をコピー」でコピーして、メモなどに貼っておいてください。'; };
     if (dl) {                                    // inside claude.ai: the page asks the viewer, who may decline
       try { await dl.save({ filename: name, data: text }); msg.textContent = `「${name}」を保存しました。ExoSpace の「HRTFファイルを選ぶ」で選べます。`; }
@@ -1120,6 +1202,14 @@ details.card > summary { font-weight: 600; }
       a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
       msg.textContent = `「${name}」を保存しました（ダウンロード先を見てください）。`;
     } catch (e) { manual(); }
+  };
+  for (const r of document.querySelectorAll('input[name=qPick]')) r.onchange = () => { if (!r.checked) return; $('qSel').value = r.value; $('qSel').dispatchEvent(new Event('change')); };
+  $('qCmp').onclick = async () => {
+    const msg = $('outMsg'); try { ensureCtx(); } catch (e) { msg.textContent = e.message; return; }
+    msg.textContent = 'Q8 を鳴らしています…';
+    if (!(await playSeq([[cur.n1, cur.n2]], 8, mode()))) return;
+    msg.textContent = 'Q16 を鳴らしています…';
+    if (await playSeq([[cur.n1, cur.n2]], 16, mode())) msg.textContent = '先が Q8、あとが Q16 です。前に聞こえやすく、音が自然なほうを選んでください。';
   };
   $('copyLinkBtn').onclick = async () => {
     const href = $('sendLink').getAttribute('href'), msg = $('outMsg'), box = $('linkText');
@@ -1136,7 +1226,9 @@ details.card > summary { font-weight: 600; }
     if (!(n1 >= 3000 && n1 <= 16000 && n2 >= 5000 && n2 <= 18000 && n2 > n1)) {
       say.className = 'msg warn'; say.textContent = 'このツールで保存したファイルではないようです。ほかの HRTF ファイルは、ExoSpace の「HRTFファイルを選ぶ」から直接読み込めます。'; return;
     }
+    const mo = /left ear \(channel L\): N1 (\d{4,5}) Hz, N2 (\d{4,5}) Hz/.exec(t), ms = /measured: (left|right) ear photo/.exec(t);
     cur.n1 = n1; cur.n2 = n2; cur.n1Spread = cur.n2Spread = undefined; cur.done = true; cur.src = 'file';
+    cur.o = mo ? { n1: +mo[1], n2: +mo[2] } : null; cur.side = mo ? 'both' : ms ? (ms[1] === 'left' ? 'L' : 'R') : null; store.o = cur.o; store.side = cur.side;
     if (mq && ['4', '8', '16'].includes(mq[1])) { $('qSel').value = mq[1]; store.q = +mq[1]; }
     store.n1 = n1; store.n2 = n2; store.src = 'file'; save(); setSliders(); say.className = 'msg'; say.textContent = '';
     await refresh(); showStep('result'); $('outMsg').textContent = `「${f.name}」を読み込みました。「ExoSpace で使う」か、「聴いて仕上げる」で続けられます。`;
@@ -1164,6 +1256,7 @@ details.card > summary { font-weight: 600; }
   window.addEventListener('resize', drawPlot);
 
   progressDraw(); setSliders(); refresh();
+  earUI();
   $('prevRes').hidden = !cur.done; showStep('photo', true);
   window.__n1n2 = { step: () => [stepNow, key()], toClient: (x, y) => { const r = cv.getBoundingClientRect(), s = S({ x, y }); return { x: r.left + s.x / cv.width * r.width, y: r.top + s.y / cv.height * r.height }; }, zoom: () => Z(), pts: () => PH.pts, gainsFor, applied, eqTextFor, grid, curveDb, minPhaseFir, levelDb, narrow, pickPair: (s) => { const span = s.hi - s.lo; if (span >= 3) { const t = Math.floor(span / 3); return [s.lo + t, s.hi - t]; } return [s.lo, s.hi]; }, T, cur, EQF };   // for tests
 })();
