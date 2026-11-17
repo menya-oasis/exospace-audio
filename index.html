@@ -366,6 +366,11 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
       <a class="btn" id="hrEarLab" href="ear.html">耳の写真から作る</a>
     </div>
     <input type="file" id="hrFile" hidden>
+    <div class="row">
+      <button class="btn small" id="hrSave">いまの HRTF をファイルに保存</button>
+      <button class="btn small" id="hrLink">別の端末に送るリンクをコピー</button>
+    </div>
+    <div class="hint" id="hrXferMsg" role="status">スマホで作った HRTF をパソコンで、パソコンのをスマホで使うときに使います。</div>
     <canvas class="curve" id="hrCv" role="img" aria-label="HRTF補正の周波数特性 (左耳と右耳)"></canvas>
     <div class="legend"><span><i style="background:var(--wall)"></i>左耳</span><span><i style="background:var(--floor)"></i>右耳</span><span>点線：耳のくぼみ</span></div>
     <div id="hrAmtBox"></div>
@@ -6202,11 +6207,12 @@ function eqLoad(text, name, quiet) {
   if (!quiet) { S.eqOn = true; lsSet(LS_EQ, text.length < 400000 ? text : ''); save(); pushPost(true); }
   renderPost(); return true;
 }
+let HR_TEXT = '';                                          // the text the HRTF was read from, kept so it can be saved or sent to another device
 function hrLoad(text, name, quiet) {
   let P = null;
   try { P = DSP.hrParse(text, name); P.notch = DSP.hrNotchOf(P) || 0; } catch (e) { P = null; postErr.hr = '読み込めませんでした: ' + e.message; }
   if (!P) { renderPostMsgs(); return false; }
-  postErr.hr = ''; HR = P; S.hrName = name || '';
+  postErr.hr = ''; HR = P; HR_TEXT = text; S.hrName = name || '';
   if (!quiet) { S.hrOn = true; lsSet(LS_HR, text.length < 400000 ? text : ''); save(); pushPost(true); pushParams(); }
   renderPost(); return true;
 }
@@ -6287,7 +6293,34 @@ readFile('eqFile', (t, n) => eqLoad(t, n, false)); readFile('hrFile', (t, n) => 
 $('eqPaste').onclick = () => { const t = $('eqText').value; if (t.trim()) eqLoad(t, '貼り付け', false); };
 $('hrPaste').onclick = () => { const t = $('hrText').value; if (t.trim()) hrLoad(t, '貼り付け', false); };
 $('eqClear').onclick = () => { EQ = null; EQ_TEXT = ''; S.eqOn = false; S.eqName = ''; postErr.eq = ''; lsSet(LS_EQ, ''); save(); pushPost(true); renderPost(); };
-$('hrClear').onclick = () => { HR = null; S.hrOn = false; S.hrName = ''; postErr.hr = ''; lsSet(LS_HR, ''); save(); pushPost(true); pushParams(); renderPost(); };
+// Take the loaded HRTF to another device: as a .txt file, or as a link that opens this app there with it already loaded.
+const hrXfer = (t) => { $('hrXferMsg').textContent = t; };
+function hrFileName() {
+  const n = String(S.hrName || '').replace(/\.[A-Za-z0-9]{1,4}$/, '').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^[_.]+|[_.]+$/g, '');
+  return (/^ExoSpace-HRTF/.test(n) ? n : n ? 'ExoSpace-HRTF_' + n : 'ExoSpace-HRTF') + '.txt';
+}
+$('hrSave').onclick = () => {
+  if (!HR || !HR_TEXT) { hrXfer(HR ? 'もとのテキストが残っていません。HRTF ファイルをもう一度選んでください。' : '先に HRTF を読み込んでください。'); return; }
+  try {
+    const name = hrFileName(), url = URL.createObjectURL(new Blob([HR_TEXT], { type: 'text/plain;charset=utf-8' })), a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+    hrXfer(`「${name}」を保存しました。別の端末では「HRTFファイルを選ぶ」で読み込めます。`);
+  } catch (e) { hrXfer('保存できませんでした。'); }
+};
+$('hrLink').onclick = async () => {
+  if (!HR || !HR_TEXT) { hrXfer(HR ? 'もとのテキストが残っていません。HRTF ファイルをもう一度選んでください。' : '先に HRTF を読み込んでください。'); return; }
+  try {
+    let b, z = 1;
+    try { b = new Uint8Array(await new Response(new Blob([HR_TEXT]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer()); } catch (e) { b = new TextEncoder().encode(HR_TEXT); z = 0; }
+    let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+    const base = /^https?:$/.test(location.protocol) ? location.href.split('#')[0] : 'https://menya-oasis.github.io/exospace-audio/';   // the extension page has no address to open elsewhere
+    const link = `${base}#hrtf=${btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}&n=${encodeURIComponent((S.hrName || 'HRTF').replace(/\.[A-Za-z0-9]{1,4}$/, ''))}&z=${z}`;
+    const long = link.length > 8000 ? '　長いので、メールなどで切れるときはファイル保存のほうが確実です。' : '';
+    try { await navigator.clipboard.writeText(link); hrXfer('リンクをコピーしました。メールや LINE で自分に送り、別の端末で開くと、この HRTF が読み込まれます。' + long); }
+    catch (e) { const t = $('hrText'); t.value = link; t.closest('details').open = true; t.focus(); t.select(); hrXfer('コピーできなかったので、下の欄にリンクを入れました。選んでコピーしてください。（読み込むボタンは押さないでください）' + long); }
+  } catch (e) { hrXfer('リンクを作れませんでした。ファイルに保存してください。'); }
+};
+$('hrClear').onclick = () => { HR = null; HR_TEXT = ''; S.hrOn = false; S.hrName = ''; postErr.hr = ''; lsSet(LS_HR, ''); save(); pushPost(true); pushParams(); renderPost(); };
 $('eqOn').onclick = () => { if (!EQ && S.eq_engine !== 'pc') { postErr.eq = '先にEQファイルを読み込んでください。'; renderPostMsgs(); return; } postErr.eq = ''; S.eqOn = !S.eqOn; save(); pushPost(true); renderPost(); };
 $('hrOn').onclick = () => { if (!HR) { postErr.hr = '先にHRTFファイルを読み込んでください。'; renderPostMsgs(); return; } postErr.hr = ''; S.hrOn = !S.hrOn; save(); pushPost(true); pushParams(); renderPost(); };
 $('eqPre').onchange = () => { S.eqPre = $('eqPre').checked; save(); pushPost(true); renderPostMsgs(); eqDraw(); };
