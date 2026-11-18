@@ -67,6 +67,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .fixPair .nm { min-width: 2.4em; font-family: var(--f-mono); font-weight: 600; } .fixPair .nm.n1 { color: var(--n1); } .fixPair .nm.n2 { color: var(--n2); }
 .fixPair input { width: 6.2em; font: inherit; font-family: var(--f-mono); padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
 .fixPair .was { font-size: .78rem; color: var(--muted); }
+.chk { display: flex; gap: 8px; align-items: center; font-size: .88rem; }
 .fixProp { border-left: 4px solid var(--accent); padding: 4px 10px; } .fixProp p { margin: 0 0 6px; font-size: .9rem; white-space: pre-line; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; max-width: 520px; }
 .chips button { font: inherit; font-size: .82rem; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 3px 10px; cursor: pointer; }
@@ -313,6 +314,7 @@ details.card > summary { font-weight: 600; }
     <div class="fix" id="fixBox">
       <h3>数値を補正する</h3>
       <p class="cap">点がずれていそうなときや、聴いて少し直したいときに使います。直した値が、そのまま下の「ExoSpace で使う」・保存・リンクに入ります。</p>
+      <div class="fixProp" id="autoNote" hidden><p id="autoText"></p><div class="row"><button class="btn small" id="autoUndo" type="button">補正前の値に戻す</button></div></div>
       <div id="fixRows"></div>
       <div class="row">
         <button class="btn" id="fixCand" type="button">写真の候補で補正</button>
@@ -320,6 +322,7 @@ details.card > summary { font-weight: 600; }
         <button class="btn" id="fixReset" type="button">写真から出た値に戻す</button>
       </div>
       <div class="fixProp" id="fixProp" hidden><p id="fixPropText"></p><div class="row"><button class="btn primary" id="fixApply" type="button">この値にする</button><button class="btn" id="fixCancel" type="button">やめる</button></div></div>
+      <label class="chk"><input type="checkbox" id="autoFixOn"> 写真から作るとき、ずれていそうな点を自動で直す</label>
       <p class="msg" id="fixMsg" role="status" aria-live="polite"></p>
     </div>
     <fieldset class="qpick" id="qPick">
@@ -1163,7 +1166,23 @@ details.card > summary { font-weight: 600; }
     cur.n1 = main.n1; cur.n2 = main.n2; cur.n1Spread = cur.n2Spread = undefined; cur.done = true; cur.src = 'photo';
     cur.side = both ? 'both' : side; cur.o = both ? { n1: BV.L.n1, n2: BV.L.n2 } : null;
     store.n1 = cur.n1; store.n2 = cur.n2; store.src = 'photo'; store.side = cur.side; store.o = cur.o; store.pv = both ? null : { n1: main.n1, n2: main.n2 }; save(); earUI();
+    autoFix();
     showStep('result');
+  }
+  // 自動補正: right after the photo values are made, the checker looks at each photo again; points it judges off (with a clear
+  // candidate) are moved and the values replaced. The values before stay one tap away. Off with the checkbox.
+  let autoBefore = null;
+  function autoFix() {
+    autoBefore = null; $('autoNote').hidden = true;
+    if (store.autoFix === false) return;
+    let r = null; try { r = proposeFix(); } catch (e) { r = null; }
+    if (!r || !Object.keys(r.prop).length) { $('autoNote').hidden = false; $('autoText').textContent = '自動補正：写真の点はそのままで良さそうなので、直していません。'; $('autoUndo').hidden = true; return; }
+    autoBefore = { n1: cur.n1, n2: cur.n2, o: cur.o ? { ...cur.o } : null };
+    for (const [e, v] of Object.entries(r.prop)) { const t = fixGet(e); t.n1 = v.n1; t.n2 = v.n2; }
+    cur.src = 'auto'; store.n1 = cur.n1; store.n2 = cur.n2; store.o = cur.o; store.src = 'auto';
+    $('n1Init').value = Math.round(cur.n1 / 10) * 10; $('n2Init').value = Math.round(cur.n2 / 10) * 10; store.n1Init = $('n1Init').value; store.n2Init = $('n2Init').value; save();   // listening starts from the corrected values
+    $('autoNote').hidden = false; $('autoUndo').hidden = false;
+    $('autoText').textContent = '自動補正しました。写真の明るさから、ずれていそうな点を直して計算し直しています。\n' + r.lines.join('\n');
   }
   // the ear choice on step 1: which photo comes next, the buttons, and a mirrored sample for the left ear
   let nextSide = 'R';
@@ -1461,6 +1480,7 @@ details.card > summary { font-weight: 600; }
     t[k] = v; fixDone(quiet ? null : `${e === 'L' ? '左耳の' : e === 'R' ? '右耳の' : ''}${k.toUpperCase()} を ${(v / 1000).toFixed(2)} kHz にしました。`);
   }
   function fixDone(note) {
+    if (autoBefore) { autoBefore = null; $('autoUndo').hidden = true; }
     cur.n1Spread = cur.n2Spread = undefined; cur.src = 'adjust';
     store.n1 = cur.n1; store.n2 = cur.n2; store.o = cur.o; store.src = 'adjust'; save(); setSliders(); refresh();
     $('fixMsg').className = 'msg'; $('fixMsg').textContent = note || '';
@@ -1477,7 +1497,11 @@ details.card > summary { font-weight: 600; }
     fixDone('写真から出た値に戻しました。'); cur.src = store.src = 'photo'; save(); refresh();
   };
   let fixPending = null;
-  $('fixCand').onclick = () => {
+  $('autoFixOn').checked = store.autoFix !== false;
+  $('autoFixOn').onchange = () => { store.autoFix = $('autoFixOn').checked; save(); };
+  $('autoUndo').onclick = () => { if (!autoBefore) return; cur.n1 = autoBefore.n1; cur.n2 = autoBefore.n2; cur.o = autoBefore.o; autoBefore = null;
+    $('autoNote').hidden = true; fixDone('自動補正の前の値に戻しました。'); cur.src = store.src = 'photo'; save(); refresh(); };
+  function proposeFix() {                                  // the checker's corrected values per ear, and a line per ear saying what moved
     const list = cur.o ? [['R', '右耳', PHS.R], ['L', '左耳', PHS.L]] : [['M', '', PHS.one]];
     const lines = [], prop = {};
     for (const [e, nm, src] of list) {
@@ -1491,6 +1515,10 @@ details.card > summary { font-weight: 600; }
       lines.push(`${lab}N1 ${(now.n1 / 1000).toFixed(2)} → ${(r.n1 / 1000).toFixed(2)} kHz、N2 ${(now.n2 / 1000).toFixed(2)} → ${(r.n2 / 1000).toFixed(2)} kHz（${moved}${unsure}）`);
       if (Math.abs(r.n1 - now.n1) > 5 || Math.abs(r.n2 - now.n2) > 5) prop[e] = { n1: r.n1, n2: r.n2 };
     }
+    return { lines, prop };
+  }
+  $('fixCand').onclick = () => {
+    const { lines, prop } = proposeFix();
     fixPending = Object.keys(prop).length ? prop : null;
     $('fixPropText').textContent = '写真の明るさから見た候補で置き直すと：\n' + lines.join('\n') + (fixPending ? '' : '\nいまの値から変わりません。');
     $('fixApply').hidden = !fixPending; $('fixProp').hidden = false; $('fixMsg').textContent = '';
@@ -1513,7 +1541,7 @@ details.card > summary { font-weight: 600; }
       const src = cur.src || store.src;
       const d = (k, init) => [src === 'listen' && init ? `写真の値との差 ${oct(cur[k], init) >= 0 ? '+' : ''}${oct(cur[k], init).toFixed(2)} oct` : '',
         Number.isFinite(cur[k + 'Spread']) ? `2回の答えのずれ ${cur[k + 'Spread'].toFixed(2)} oct` : ''].filter(Boolean).join('　');
-      $('n1Diff').textContent = d('n1', i1) || (src === 'photo' ? '写真から' : src === 'adjust' ? '補正した値' : '調整した値'); $('n2Diff').textContent = d('n2', i2) || (src === 'photo' ? '写真から' : src === 'adjust' ? '補正した値' : '調整した値');
+      $('n1Diff').textContent = d('n1', i1) || (src === 'photo' ? '写真から' : src === 'auto' ? '写真から（自動補正）' : src === 'adjust' ? '補正した値' : '調整した値'); $('n2Diff').textContent = d('n2', i2) || (src === 'photo' ? '写真から' : src === 'auto' ? '写真から（自動補正）' : src === 'adjust' ? '補正した値' : '調整した値');
       // plain-language verdict: the 54-ear range, and how steady the listening answers were
       const inR = (v, lo, hi) => v >= lo * 0.92 && v <= hi * 1.08, typical = inR(cur.n1, N1_LO, N1_HI) && inR(cur.n2, N2_LO, N2_HI) && (!cur.o || (inR(cur.o.n1, N1_LO, N1_HI) && inR(cur.o.n2, N2_LO, N2_HI)));
       const shaky = ['n1Spread', 'n2Spread'].some((k) => Number.isFinite(cur[k]) && cur[k] > 0.15 + 1e-6);
