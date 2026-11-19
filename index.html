@@ -114,6 +114,9 @@ canvas { display: block; width: 100%; height: 150px; }
 .hint { color: var(--muted); font-size: 12px; margin: -2px 0 4px; }
 .group { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
 details summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
+.easy { border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; padding: 6px 12px 8px; margin: 8px 0; }
+.easy .easyH { display: block; padding: 4px 0 2px; }
+details.roomMore { margin-top: 6px; } details.roomMore > summary { font-weight: 700; padding: 8px 0; }
 details.more { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 4px; }
 details.more > summary { font-weight: 700; padding: 10px 0 6px; }
 select { width: 100%; min-height: 44px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 0 10px; }
@@ -244,6 +247,7 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
       <div class="t"><b>空間</b><span id="spaceSub">8つの壁反射、床・天井、残響。</span></div>
       <button class="tog" id="spatialOn" aria-pressed="true" aria-label="空間"></button>
     </div>
+    <div id="modeEasy"></div>
     <details class="more" id="spaceMore"><summary>空間の詳細設定</summary>
     <div id="p11ctl">
       <div class="ctl"><label for="er_db">反射の大きさ</label><output id="o_er_db"></output>
@@ -5387,6 +5391,7 @@ const MODES = {
       'late_db', 'rt_low', 'rt_high', 'coh_lf', 'coh_hf'] },
   room: { name: 'ROOM', replace: true, extra: 'room',
     note: '部屋の大きさ・壁の材質・スピーカーと聴き手の位置から、2本のスピーカーが部屋で鳴った音を両耳で受けた応答 (反射3回までの鏡像、拡散した残響、低音の部屋の共振) を計算し、その応答を曲に畳み込みます。PC版の ROOM (exospace_room.py) と同じ計算です。クロスフィードは使いません (左右の回り込みは部屋と頭のモデルが作ります)。',
+    simple: ['r_distance', 'room_mix_db'],
     ctl: ['room_mix_db', 'p21_room_width', 'p21_room_front', 'p21_room_back', 'p21_room_height', 'r_distance', 'room_spk_az', 'room_spk_z', 'room_spk_lf_hz', 'room_offset_m', 'room_ceiling_scatter', 'room_bass_trap', 'room_eq_bass', 'room_eq_tone', 'room_dir', 'room_pinna', 'room_norm_db', 'room_order', 'air_temp', 'air_humidity'] },
   pro22: { name: 'Pro 22', bauer: true, extra: 'room',
     note: '直接音は入力のまま (クロスフィードは掛けられます) にして、ROOM と同じ部屋の反射と残響だけを足します。PC版の Pro22 (exospace_pro22.py) と同じ計算です。',
@@ -5953,9 +5958,9 @@ function fillModes() {
 }
 let builtFor = '';
 // one control = a slider and a number box (type the exact value); SPEC gives label, range, step, unit, decimals
-function ctlRow(k, pre) {
+function ctlRow(k, pre, label) {
   const sp = SPEC[k], id = (pre || 'c_') + k, u = (sp[5] || '').trim();
-  return `<div class="ctl"><label for="${id}">${sp[0]}</label><span class="nbw"><input class="nb num" type="number" inputmode="decimal" step="any" id="n_${id}" data-k="${k}" min="${sp[1]}" max="${sp[2]}" aria-label="${sp[0]} の値"><span class="u">${u}</span></span>`
+  return `<div class="ctl"><label for="${id}">${label || sp[0]}</label><span class="nbw"><input class="nb num" type="number" inputmode="decimal" step="any" id="n_${id}" data-k="${k}" min="${sp[1]}" max="${sp[2]}" aria-label="${sp[0]} の値"><span class="u">${u}</span></span>`
     + `<input type="range" id="${id}" data-k="${k}" min="${sp[1]}" max="${sp[2]}" step="${sp[3]}"></div>`;
 }
 const fmtNum = (k, v) => Number(v).toFixed(SPEC[k][6]);
@@ -5970,7 +5975,8 @@ const POST_KEYS = new Set(['hrAmt']);
 function setKey(k, v, from) {
   const sp = SPEC[k]; if (!sp || !isFinite(v)) return;
   v = Math.min(sp[2], Math.max(sp[1], v));
-  S[k] = v; save();
+  S[k] = v; if (k === 'r_distance' && S.room_spk_dist !== undefined) delete S.room_spk_dist;   // the room follows the distance slider
+  save();
   for (const el of document.querySelectorAll('[data-k="' + k + '"]')) if (el !== from) el.value = el.type === 'range' ? v : fmtNum(k, v);
   if (POST_KEYS.has(k)) { pushPost(false); hrDraw(); renderPostMsgs(); } else pushParams();
 }
@@ -5997,20 +6003,31 @@ function renderMode() {
   $('dirBox').hidden = !M.dir; $('dirMore').hidden = !M.dir;
   $('spaceSub').textContent = M.p11 ? '8つの壁反射、床・天井、残響。' : (M.replace ? 'このモードが直接音から作り直します。' : '反射と残響を直接音に足します。');
   if (builtFor !== S.mode) {
-    builtFor = S.mode; box.innerHTML = ''; $('modeMore').innerHTML = '';
-    const add = (html) => box.insertAdjacentHTML('beforeend', html);
+    builtFor = S.mode; box.innerHTML = ''; $('modeMore').innerHTML = ''; $('modeEasy').innerHTML = '';
+    let add = (html) => box.insertAdjacentHTML('beforeend', html);
     const addMore = (html) => $('modeMore').insertAdjacentHTML('beforeend', html);
     const main = new Set(M.ctl);
     if (M.fdn) add('<div class="sw"><div class="t"><b>残響 (FDN)</b><span>切ると初期反射だけになります。</span></div><button class="tog" id="fdnOn" aria-pressed="true" aria-label="残響"></button></div>');
     if (M.dither) addMore('<div class="sw"><div class="t"><b>聴き手のゆらぎ</b><span>ごくわずかに頭を動かしたように、位置を揺らします。</span></div><button class="tog" id="ditherOn" aria-pressed="false" aria-label="ゆらぎ"></button></div>');
     if (M.extra === 'p21') add('<div class="msg" id="p21info"></div><div class="msg err" id="p21err" hidden></div>');
+    if (M.simple) {                              // ROOM: the two things people change most, on top; the rest folded away
+      const easy = (html) => $('modeEasy').insertAdjacentHTML('beforeend', html);
+      easy('<div class="msg" id="roomInfo">再生を始めると、部屋の応答を作ります。</div>');
+      easy(`<div class="easy" id="roomEasy"><b class="easyH">かんたん調整</b>
+        ${ctlRow('r_distance', 'e_', '距離（奥行き）')}<div class="hint">遠くすると音が奥へ下がり、響きの割合も増えます。部屋の壁より遠くには置けません（そこで止まります）。</div>
+        ${ctlRow('room_mix_db', 'e_', '響きの量')}<div class="hint">0 dB が部屋の計算どおりです。下げるとエコーが減り、上げると増えます。</div>
+        <div class="row"><button class="btn small" id="roomEasyReset" type="button">2つとも初期値に戻す</button></div></div>`);
+      add('<details class="roomMore" id="roomMore"><summary>部屋の詳しい設定（大きさ・壁・スピーカーの位置など）</summary><div id="roomMoreIn"></div></details>');
+      const inner = $('roomMoreIn'); add = (html) => inner.insertAdjacentHTML('beforeend', html);
+    }
     if (M.extra === 'room') {
-      add('<div class="msg" id="roomInfo">再生を始めると、部屋の応答を作ります。</div>');
+      if (!M.simple) add('<div class="msg" id="roomInfo">再生を始めると、部屋の応答を作ります。</div>');
       add('<div class="ctl"><label for="roomMat">壁の材質</label><select id="roomMat"><option value="standard">ふつうの壁</option><option value="listening_room">吸音した試聴室の壁</option><option value="concrete_plywood">コンクリート + 合板</option><option value="perforated_board">穴あき板 (よく吸う)</option><option value="grass_field">草地 (屋外に近い)</option></select></div>');
       add('<div class="msg" id="roomFaces" hidden>PC版の設定から、面ごとの壁の材質 (床・天井・左右・前後) を読み込んでいます。そちらが上の「壁の材質」より優先されます。<button class="btn small" id="roomFacesClear">面ごとの材質を外す</button></div>');
       if (S.mode === 'room') add('<div class="ctl"><label for="roomVer">版</label><select id="roomVer"><option value="2">Ver 2 — 低音の凸凹と音色を補正した版</option><option value="1">Ver 1 — 最初の版 (聴き比べ用)</option></select></div>');
     }
-    for (const k of M.ctl) if (main.has(k)) add(ctlRow(k, 'm_'));
+    for (const k of M.ctl) if (main.has(k) && !(M.simple || []).includes(k)) add(ctlRow(k, 'm_'));
+    if (M.simple) $('roomEasyReset').onclick = () => { for (const k of M.simple) setKey(k, DEFAULTS[k] !== undefined ? DEFAULTS[k] : SPEC[k][4], null); refreshCtls(); };
     for (const k of M.ctl) if (!main.has(k)) addMore(ctlRow(k, 'm_'));
     if (M.dither) addMore(ctlRow('pro17_dither_deg', 'm_'));
     if (M.extra === 'p21') {
@@ -6442,7 +6459,7 @@ function roomShow() {
   else if (roomStat.building || roomQueued) t = (inf ? '新しい設定で作り直しています (それまで前の応答で鳴ります) …' : '部屋の応答を作成中 (できるまで素通しです) …') + (roomWorkerFailed ? ' 画面が少し止まります。' : '');
   else if (inf) {
     t = `動作中 | 応答 ${(inf.taps / inf.fs).toFixed(2)} 秒 | 響き (500 Hz) ${inf.t500.toFixed(2)} 秒 | 部屋 ${inf.dims[0].toFixed(1)}×${inf.dims[1].toFixed(1)}×${inf.dims[2].toFixed(1)} m | 反射 ${inf.n_images} 本 | 作成 ${(inf.build_ms / 1000).toFixed(1)} 秒`;
-    if (md === 'room') t += ` | 響きの量 ${inf.mix_db >= 0 ? '+' : ''}${inf.mix_db.toFixed(1)} dB | 音量補正 ${inf.gain_db.toFixed(1)} dB`;
+    if (md === 'room') t += ` | 距離 ${Number(S.room_spk_dist !== undefined ? S.room_spk_dist : S.r_distance).toFixed(2)} m | 響きの量 ${inf.mix_db >= 0 ? '+' : ''}${inf.mix_db.toFixed(1)} dB | 音量補正 ${inf.gain_db.toFixed(1)} dB`;
     if (md === 'pro22' && inf.meas) t += ` | 初期反射 ${inf.meas.early_db.toFixed(1)} dB | 後期−初期 ${inf.meas.le_db.toFixed(1)} dB`;
     if (inf.absorb_extra > 0) t += ` | 響きが長すぎるので吸音を ${(100 * inf.absorb_extra).toFixed(0)}% 足して短縮`;
     if (inf.truncated) t += ' | 応答の終わりを丸めています';
