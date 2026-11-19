@@ -3625,11 +3625,15 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     room_spk_dist: 1.2, room_spk_az: 30.0, room_spk_z: null, room_toe_in: 1.0, room_dir: 1.0, room_spk_lf_hz: 35.0, room_mix_db: 0.0,
     room_order: 3, room_scatter: null, room_material: 'standard', room_notch_hz: 0.0, room_pinna: 0.6, air_temp: 20.0, air_humidity: 50.0,
     room_len_s: 0.0, room_ceiling_scatter: null, room_ceiling_abs: 0.0, room_len_max_s: 8.0, room_seed: 1,
-    room_bass_trap: null, room_eq_bass: null, room_eq_tone: null, room_auto_place: null,
+    room_bass_trap: null, room_eq_bass: null, room_eq_tone: null, room_auto_place: null, room_fill_250: null,
   };
   const ROOM_VERSION_DEFAULTS = {
     1: { room_spk_z: 1.2, room_ceiling_scatter: null, room_bass_trap: 0.0, room_eq_bass: 0.0, room_eq_tone: 0.0, room_auto_place: 0.0 },
     2: { room_spk_z: 1.0, room_ceiling_scatter: 0.9, room_bass_trap: 0.25, room_eq_bass: 1.0, room_eq_tone: 0.5, room_auto_place: 0.0 },
+    // Ver 3 (this port only, not in the PC version): no 250 Hz hump. Ver 2's bass trap covers 63/125 Hz and most materials absorb least
+    // at 250 Hz, so 250 Hz rang longest (standard walls: 1.06 s against 0.68 s at 1 kHz). Ver 3 lifts each face's 250 Hz absorption
+    // to at least the smaller of its 125 Hz and 1 kHz values, so the reverb time no longer peaks there.
+    3: { room_spk_z: 1.0, room_ceiling_scatter: 0.9, room_bass_trap: 0.25, room_eq_bass: 1.0, room_eq_tone: 0.5, room_auto_place: 0.0, room_fill_250: 1.0 },
   };
   const ROOM_ENGINE_DEFAULTS = { room_auto: 0.0, room_auto_amount: 1.0, song_attack_db: null, song_gap_decay_s: null, room_norm: 1.0,
     room_norm_db: 0.0, room_trim: 1.0, room_track: 0.0 };
@@ -3642,14 +3646,14 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
   function rmParams(cfg) {
     cfg = cfg || {};
     let ver = Math.round(Number(cfg.room_version !== null && cfg.room_version !== undefined ? cfg.room_version : 2)); if (!isFinite(ver)) ver = 2;
-    ver = ver <= 1 ? 1 : 2;
+    ver = ver <= 1 ? 1 : ver >= 3 ? 3 : 2;
     const p = rmDefaultsFor(ver); p.room_version = ver;
     for (const k of Object.keys(ROOM_DEFAULTS)) if (cfg[k] !== null && cfg[k] !== undefined) p[k] = cfg[k];
     if (p.room_ceiling_scatter !== null && p.room_ceiling_scatter !== undefined) p.room_ceiling_scatter = Math.min(Math.max(rmNum(p, 'room_ceiling_scatter', 0.0), 0.0), 0.95);
     for (const k of Object.keys(RM_P21)) { if (p[k] === null || p[k] === undefined) p[k] = rmNum(cfg, RM_P21[k][0], RM_P21[k][1]); p[k] = Number(p[k]); }
     const dv = rmDefaultsFor(ver);
     for (const k of ['room_offset_m', 'room_listener_z', 'room_spk_dist', 'room_spk_az', 'room_spk_z', 'room_toe_in', 'room_dir', 'room_spk_lf_hz', 'room_mix_db',
-      'room_notch_hz', 'room_pinna', 'air_temp', 'air_humidity', 'room_len_s', 'room_len_max_s', 'room_ceiling_abs', 'room_bass_trap', 'room_eq_bass', 'room_eq_tone', 'room_auto_place']) p[k] = rmNum(p, k, dv[k]);
+      'room_notch_hz', 'room_pinna', 'air_temp', 'air_humidity', 'room_len_s', 'room_len_max_s', 'room_ceiling_abs', 'room_bass_trap', 'room_eq_bass', 'room_eq_tone', 'room_auto_place', 'room_fill_250']) p[k] = rmNum(p, k, dv[k]);
     p.room_order = Math.trunc(Math.max(0, Math.min(6, rmPyRound(rmNum(p, 'room_order', 3)))));
     p.room_seed = Math.trunc(rmNum(p, 'room_seed', 1));
     p.wall_faces_6d = cfg.wall_faces_6d; p.audience_absorb_low = cfg.audience_absorb_low !== undefined ? cfg.audience_absorb_low : 0.0;
@@ -3677,6 +3681,7 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     if (face === 'floor') { let aud = Number(p.audience_absorb_low || 0.0); if (!isFinite(aud)) aud = 0.0; aud = Math.min(Math.max(aud, 0.0), 1.0); a = a.map((v) => 1.0 - (1.0 - v) * (1.0 - aud)); }
     const trap = Math.min(Math.max(Number(p.room_bass_trap || 0.0), 0.0), 1.0);
     if (trap > 0.0) { a[0] = 1.0 - (1.0 - a[0]) * (1.0 - trap * 1.0); a[1] = 1.0 - (1.0 - a[1]) * (1.0 - trap * 0.6); }
+    if (Number(p.room_fill_250 || 0.0) > 0.0) a[2] = Math.max(a[2], Math.min(a[1], a[3]));
     if (face === 'ceiling' && Number(p.room_ceiling_abs || 0.0) > 0.0) { const ca = Math.min(Number(p.room_ceiling_abs), 0.95); a = a.map((v) => 1.0 - (1.0 - v) * (1.0 - ca)); }
     const extra = Number(p._a_extra || 0.0);
     if (extra > 0.0) a = a.map((v) => 1.0 - (1.0 - v) * (1.0 - extra));
@@ -4279,6 +4284,7 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
   /** whole build for one mode: {h, dry, info, ...}; the build part (buildBrir) depends only on the room, the response on mix / level */
   function roomBuild(S, fs, mode, notchHz, cache, opts) {
     const c = roomCoreConfig(S, notchHz);
+    if (mode === 'pro22' && Number(c.room_version) >= 3) c.room_version = 2;   // Ver 3 is a ROOM-only change; Pro22 stays the PC's
     const sigCfg = Object.assign({}, c); for (const k of ['room_mix_db', 'room_auto', 'room_auto_amount', 'song_attack_db', 'song_gap_decay_s', 'room_norm', 'room_norm_db', 'room_trim', 'room_track', 'p22_level_db', 'p22_late_db', 'p22_cross', 'p22_ext']) delete sigCfg[k];
     if (mode === 'pro22') Object.assign(sigCfg, { room_mix_db: 0.0, room_eq_bass: 0.0, room_eq_tone: 0.0 });
     const sig = JSON.stringify(sigCfg) + '|' + fs + '|' + mode;
@@ -5198,7 +5204,7 @@ const DEFAULTS = {
   eqOn: false, eqPre: true, eqName: '', hrOn: false, hrSync: true, hrName: '', hr_mode: 'keep',
   p21_air_db_per_m: [0.0, 0.01, 0.04, 0.10],
   eq_first: true, eq_engine: 'min', pc_hpf: '', pcfir: { taps: 43200, window_idx: '1', kaiser_beta: 8.6, hpf: 20.0, lpf: 20000.0, filter_ver: 2, interp_mode: 'hermite', phase_mode: 'pure', norm_mode: 'off', h4_ha_weight: 1.0, h4_pa_depth: 1.0, h5_min_hz: 80.0, mix_mode: 'avg' },
-  ex_enabled: false, ex_mode: 'standard', room_material: 'standard', room_version: 2,
+  ex_enabled: false, ex_mode: 'standard', room_material: 'standard', room_version: 3,
 };
 for (const w of DSP.P21_SURF) DEFAULTS['p21_reflect_' + w] = DSP.P21_REFL[w].slice();
 
@@ -5390,7 +5396,7 @@ const MODES = {
       'p21_head_radius', 'p21_head_shadow', 'p21_elevation_strength',
       'late_db', 'rt_low', 'rt_high', 'coh_lf', 'coh_hf'] },
   room: { name: 'ROOM', replace: true, extra: 'room',
-    note: '部屋の大きさ・壁の材質・スピーカーと聴き手の位置から、2本のスピーカーが部屋で鳴った音を両耳で受けた応答 (反射3回までの鏡像、拡散した残響、低音の部屋の共振) を計算し、その応答を曲に畳み込みます。PC版の ROOM (exospace_room.py) と同じ計算です。クロスフィードは使いません (左右の回り込みは部屋と頭のモデルが作ります)。',
+    note: '部屋の大きさ・壁の材質・スピーカーと聴き手の位置から、2本のスピーカーが部屋で鳴った音を両耳で受けた応答 (反射3回までの鏡像、拡散した残響、低音の部屋の共振) を計算し、その応答を曲に畳み込みます。PC版の ROOM (exospace_room.py) と同じ計算です (版を Ver 2 にしたとき。初期の Ver 3 は 250 Hz のこもりだけを減らした、この端末だけの版です)。クロスフィードは使いません (左右の回り込みは部屋と頭のモデルが作ります)。',
     simple: ['r_distance', 'room_mix_db'],
     ctl: ['room_mix_db', 'p21_room_width', 'p21_room_front', 'p21_room_back', 'p21_room_height', 'r_distance', 'room_spk_az', 'room_spk_z', 'room_spk_lf_hz', 'room_offset_m', 'room_ceiling_scatter', 'room_bass_trap', 'room_eq_bass', 'room_eq_tone', 'room_dir', 'room_pinna', 'room_norm_db', 'room_order', 'air_temp', 'air_humidity'] },
   pro22: { name: 'Pro 22', bauer: true, extra: 'room',
@@ -5415,6 +5421,7 @@ try { Object.assign(S, JSON.parse(localStorage.getItem(LS) || '{}')); } catch (e
 if (S.lockFx === undefined) S.lockFx = true;
 S.bypass = false;
 const save = () => { try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) { /* ignore */ } };
+if (!S.roomV3) { if (S.room_version === 2) S.room_version = 3; S.roomV3 = true; save(); }   // ROOM Ver 3 (less 250 Hz boom) became the default once; Ver 2 stays selectable
 
 // ---- reflection table (room shape) -------------------------------------------------------------------------------
 let TABLE = TABLE0;
@@ -6024,7 +6031,7 @@ function renderMode() {
       if (!M.simple) add('<div class="msg" id="roomInfo">再生を始めると、部屋の応答を作ります。</div>');
       add('<div class="ctl"><label for="roomMat">壁の材質</label><select id="roomMat"><option value="standard">ふつうの壁</option><option value="listening_room">吸音した試聴室の壁</option><option value="concrete_plywood">コンクリート + 合板</option><option value="perforated_board">穴あき板 (よく吸う)</option><option value="grass_field">草地 (屋外に近い)</option></select></div>');
       add('<div class="msg" id="roomFaces" hidden>PC版の設定から、面ごとの壁の材質 (床・天井・左右・前後) を読み込んでいます。そちらが上の「壁の材質」より優先されます。<button class="btn small" id="roomFacesClear">面ごとの材質を外す</button></div>');
-      if (S.mode === 'room') add('<div class="ctl"><label for="roomVer">版</label><select id="roomVer"><option value="2">Ver 2 — 低音の凸凹と音色を補正した版</option><option value="1">Ver 1 — 最初の版 (聴き比べ用)</option></select></div>');
+      if (S.mode === 'room') add('<div class="ctl"><label for="roomVer">版</label><select id="roomVer"><option value="3">Ver 3 — 250 Hz のこもりを減らした版 (おすすめ・この端末だけ)</option><option value="2">Ver 2 — PC版と同じ (低音の凸凹と音色を補正)</option><option value="1">Ver 1 — 最初の版 (聴き比べ用)</option></select><div class="hint">Ver 3 は、250 Hz あたりだけ響きが長く残る「こもり」をなくした版です。PC版と完全に同じ音にしたいときは Ver 2 にしてください。</div></div>');
     }
     for (const k of M.ctl) if (main.has(k) && !(M.simple || []).includes(k)) add(ctlRow(k, 'm_'));
     if (M.simple) $('roomEasyReset').onclick = () => { for (const k of M.simple) setKey(k, DEFAULTS[k] !== undefined ? DEFAULTS[k] : SPEC[k][4], null); refreshCtls(); };
@@ -6057,10 +6064,10 @@ function renderMode() {
     $('roomFaces').hidden = !(S.wall_faces_6d && typeof S.wall_faces_6d === 'object' && Object.keys(S.wall_faces_6d).length);
     $('roomFacesClear').onclick = () => { delete S.wall_faces_6d; delete S.audience_absorb_low; save(); syncUi(); pushParams(); };
     if ($('roomVer')) {
-      $('roomVer').value = String(S.room_version === 1 ? 1 : 2);
+      $('roomVer').value = String(S.room_version === 1 ? 1 : S.room_version === 2 ? 2 : 3);
       $('roomVer').onchange = () => {            // a version brings its own values for the keys it changes
         const v = Number($('roomVer').value), d = v === 1 ? { room_spk_z: 1.2, room_bass_trap: 0.0, room_eq_bass: 0.0, room_eq_tone: 0.0 } : { room_spk_z: 1.0, room_ceiling_scatter: 0.9, room_bass_trap: 0.25, room_eq_bass: 1.0, room_eq_tone: 0.5 };
-        S.room_version = v; Object.assign(S, d); if (v === 1) delete S.room_ceiling_scatter; save(); syncUi(); refreshCtls(); pushParams();
+        S.room_version = v; Object.assign(S, d); if (v === 1) delete S.room_ceiling_scatter; if (v !== 3) S.roomV3 = true; save(); syncUi(); refreshCtls(); pushParams();
       };
     }
     roomShow();
