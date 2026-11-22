@@ -172,6 +172,9 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
       <button class="btn" id="rep" aria-pressed="false">くり返し: 切</button>
     </div>
     <div class="err" id="err" role="status" hidden></div>
+    <div class="err" id="speedWarn" role="status" hidden><span id="speedTxt"></span>
+      <div class="row"><button class="btn small" id="speedFix" type="button">音の出口を作り直す</button><button class="btn small" id="speedReload" type="button">アプリを開き直す</button></div></div>
+    <div class="msg" id="speedNote" role="status" hidden></div>
     <div class="err" id="overload" role="status" hidden>この端末では処理が間に合わず、音が途切れたりノイズになったりしています。空間モードを軽いもの (Pro 11 v4・Pro 15・クロスフィードのみ など) にするか、HRTFを切ってください。</div>
   </section>
 
@@ -5564,12 +5567,57 @@ function benchmark(fs) {
   } catch (e) { loadPct = null; }
 }
 let liveLoad = null, limDb = 0, overSince = 0;
+// ---- playback speed watchdog ----------------------------------------------------------------------------------------
+// Nothing in this app changes the speed. A song running fast and high means the phone's output runs at another sample rate
+// than the audio context (48 vs 44.1 kHz gives 1.09x), which can happen after Bluetooth / USB DAC switches or a stall. Once a
+// second while playing, the song's clock is compared with the real clock; if it is more than 3 % off for two checks in a row,
+// the output is reopened (suspend + resume) once; if it stays off, the page says so and offers to reopen the app.
+let spSamples = [], spBad = 0, spLast = 0, spRepairs = 0, spRate = 1;
+function speedSample(media, wall, ctxT) {            // media / ctx in s, wall in ms (exposed for the test)
+  const prev = spSamples[spSamples.length - 1];
+  if (prev && (media < prev.m || media - prev.m > 3 * (wall - prev.w) / 1000 + 0.5)) spSamples = [];   // seek or new song
+  spSamples.push({ m: media, w: wall, c: ctxT }); if (spSamples.length > 4) spSamples.shift();
+  if (spSamples.length < 4) return null;
+  const a = spSamples[0], b = spSamples[spSamples.length - 1], dt = (b.w - a.w) / 1000; if (dt < 2) return null;
+  spRate = (b.m - a.m) / dt; const off = Math.abs(spRate - 1) > 0.03;
+  spBad = off ? spBad + 1 : 0;
+  if (spBad >= 2) { spBad = 0; spSamples = []; speedTrouble(spRate); }
+  else if (!off && !$('speedWarn').hidden && Date.now() - spLast > 5000) $('speedWarn').hidden = true;
+  return spRate;
+}
+async function repairOutput() {
+  if (!ctx) return;
+  try { await ctx.suspend(); await new Promise((r) => setTimeout(r, 150)); await ctx.resume(); } catch (e) { /* ignore */ }
+  spSamples = []; spBad = 0;
+}
+async function speedTrouble(r) {
+  const x = r.toFixed(2) + ' 倍', now = Date.now();
+  if (now - spLast > 30000) {                          // first time: reopen the output quietly and say so
+    spLast = now; spRepairs++; await repairOutput();
+    $('speedNote').hidden = false; $('speedNote').textContent = `再生速度が約 ${x}にずれていたので、音の出口を作り直しました（スマホの出力の周波数と合っていなかったためです）。`;
+    setTimeout(() => { $('speedNote').hidden = true; }, 12000);
+    return;
+  }
+  spLast = now;
+  $('speedWarn').hidden = false;
+  $('speedTxt').textContent = `再生速度が約 ${x}になっています（正しくは 1.00 倍）。スマホの出力（Bluetooth・USB DAC など）の周波数と、このアプリの音の周波数（${ctx ? (ctx.sampleRate / 1000).toFixed(1) : '?'} kHz）が合っていません。` +
+    '「音の出口を作り直す」で直らないときは、「アプリを開き直す」を押してください（曲は最初からになります）。イヤホンやDACをつなぎ替えた直後に起きやすいです。';
+}
+setInterval(() => {
+  if (!ctx || audio.paused || audio.seeking || audio.playbackRate !== 1 || ctx.state !== 'running' || audio.readyState < 3) { spSamples = []; spBad = 0; return; }
+  speedSample(audio.currentTime, performance.now(), ctx.currentTime);
+}, 1000);
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', () => { if (ctx && ctx.state === 'running') setTimeout(repairOutput, 600); });
+$('speedFix').onclick = async () => { await repairOutput(); $('speedWarn').hidden = true; spLast = Date.now(); };
+$('speedReload').onclick = () => location.reload();
+
 function updateStatus() {
   const live = !audio.paused || !!capStream, fs = ctx ? ctx.sampleRate : null, ld = liveLoad != null && live ? liveLoad : loadPct;
   $('status').textContent = ctx ? `${(fs / 1000).toFixed(1)} kHz${devRate ? ` (機器 ${(devRate / 1000).toFixed(1)} kHz)` : ''} · ${mode}` + (ld != null ? ` · 負荷 約${ld.toFixed(0)}%` : '') + (limDb < -0.05 && live ? ` · 音割れ防止 ${limDb.toFixed(1)} dB` : '') : '未起動';
   // sustained overload: the audio breaks up into noise on this device; say so and what to do
   if (liveLoad != null && live && liveLoad > 85) { if (!overSince) overSince = Date.now(); } else overSince = 0;
   $('overload').hidden = !(overSince && Date.now() - overSince > 2500);
+  if (live && Math.abs(spRate - 1) > 0.03 && spSamples.length >= 4) $('status').textContent += ` · 速度 ${spRate.toFixed(2)}倍`;
 }
 
 
@@ -6643,7 +6691,7 @@ requestAnimationFrame(drawScope);
   try { lib = await DB.getAllMeta(); } catch (e) { libMsg('この端末では曲を保存できません(プライベートブラウズなど)。取り込んだ曲は閉じると消えます。'); }
   renderLib(); updateStore();
 })();
-window.__exo = { get S() { return S; }, get node() { return node; }, get ctx() { return ctx; }, DSP, audio, get mode() { return mode; }, get lib() { return lib; }, get queue() { return queue; }, roomStat, roomApplied, firStat };
+window.__exo = { speedSample, get spRepairs() { return spRepairs; }, get S() { return S; }, get node() { return node; }, get ctx() { return ctx; }, DSP, audio, get mode() { return mode; }, get lib() { return lib; }, get queue() { return queue; }, roomStat, roomApplied, firStat };
 </script>
 <script>if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));}</script>
 </body></html>
