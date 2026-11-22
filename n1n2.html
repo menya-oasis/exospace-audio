@@ -953,7 +953,14 @@ details.card > summary { font-weight: 600; }
       if (moved.length) { for (const h of ['h1', 'h2']) p[h] = { x: p[h].x, y: p.canal.y }; assist(); }
       take(['h1', 'h2']); assist();
       const r = evalPts();
-      out = { ok: r.ok, why: r.why, n1: PH.n1, n2: PH.n2, moved, left: ORDER.filter((k) => CHK[k] && CHK[k].st !== 'ok') };
+      out = { ok: r.ok, why: r.why, n1: PH.n1, n2: PH.n2, moved, left: ORDER.filter((k) => CHK[k] && CHK[k].st !== 'ok'), est: [] };
+      // still outside the adult range (an angled photo, or no edge to be found where one should be): estimate from the typical ears.
+      // N1 is kept within its range; N2 then follows N1 by the typical ratio (the geometric middles of the two ranges, 1.43).
+      if (out.ok) {
+        const inR = (v, lo, hi) => v >= lo / 1.08 && v <= hi * 1.08, ratio = Math.sqrt(N2_LO * N2_HI) / Math.sqrt(N1_LO * N1_HI);
+        if (!inR(out.n1, N1_LO, N1_HI)) { out.n1 = Math.min(N1_HI, Math.max(N1_LO, out.n1)); out.est.push('N1'); }
+        if (!inR(out.n2, N2_LO, N2_HI) || out.n2 < out.n1 * 1.1) { out.n2 = Math.min(N2_HI, Math.max(N2_LO, out.n1 * ratio)); out.est.push('N2'); }
+      }
     } finally { Object.assign(PH, keep); DIM = null; PIX = null; for (const k of ORDER) CHK[k] = null; }
     return out;
   }
@@ -1055,11 +1062,13 @@ details.card > summary { font-weight: 600; }
     if (p.canal && s && P) {
       const sg = backSign(s), pr = lineProfile(p.canal, sg, 0, s, 0, 0.75 * Lm); if (!pr) return chipsUI();
       // N2's edge is a sharp shadow line; the rim band often brightens gently, so N1 is looked for with a wider slope and its own scale
-      const edges = risingEdges(pr, 0.1 * Lm, 0.42 * Lm).edges, prior = (t, c, w) => Math.exp(-((t - c * Lm) ** 2) / (2 * (w * Lm) ** 2));
-      const n2c = edges.filter((e) => e.t >= 0.12 * Lm && e.t <= 0.4 * Lm).map((e) => ({ ...e, sc: e.k * prior(e.t, 0.27, 0.07) })).sort((a, b) => b.sc - a.sc)[0] || null;
+      // candidates only where they give a plausible notch (the adult range, +-8 %): an edge closer to the canal is a shadow inside the bowl
+      const mmOf = (f) => C / (2 * f) * 1000, n2Lo = mmOf(N2_HI * 1.08), n2Hi = mmOf(N2_LO / 1.08), n1Lo = mmOf(N1_HI * 1.08), n1Hi = mmOf(N1_LO / 1.08);
+      const edges = risingEdges(pr, Math.max(0.1 * Lm, n2Lo - 1), Math.min(0.42 * Lm, n2Hi + 1)).edges, prior = (t, c, w) => Math.exp(-((t - c * Lm) ** 2) / (2 * (w * Lm) ** 2));
+      const n2c = edges.filter((e) => e.t >= Math.max(0.12 * Lm, n2Lo) && e.t <= Math.min(0.4 * Lm, n2Hi)).map((e) => ({ ...e, sc: e.k * prior(e.t, 0.27, 0.07) })).sort((a, b) => b.sc - a.sc)[0] || null;
       const out = outlineAt(pr, (n2c ? n2c.t : 0.27 * Lm) + 4);
-      const e1 = risingEdges(pr, Math.max(0.26 * Lm, (n2c ? n2c.t : 0) + 3), Math.min(0.64 * Lm, out ? out - 0.5 : 1e9), 9, 2.5).edges;
-      const n1c = e1.filter((e) => e.t >= Math.max(0.28 * Lm, (n2c ? n2c.t : 0) + 3) && e.t <= Math.min(0.62 * Lm, out ? out - 1.2 : 1e9)).map((e) => ({ ...e, sc: e.k * prior(e.t, 0.42, 0.08) })).sort((a, b) => b.sc - a.sc)[0] || null;
+      const e1 = risingEdges(pr, Math.max(0.26 * Lm, n1Lo, (n2c ? n2c.t : 0) + 3), Math.min(0.64 * Lm, n1Hi, out ? out - 0.5 : 1e9), 9, 2.5).edges;
+      const n1c = e1.filter((e) => e.t >= Math.max(0.28 * Lm, n1Lo, (n2c ? n2c.t : 0) + 3) && e.t <= Math.min(0.62 * Lm, n1Hi, out ? out - 1.2 : 1e9)).map((e) => ({ ...e, sc: e.k * prior(e.t, 0.42, 0.08) })).sort((a, b) => b.sc - a.sc)[0] || null;
       const at = (t) => ({ x: p.canal.x + sg * t * s, y: p.canal.y });
       const judge = (k, c, name, edgeWord) => {
         if (!p[k]) return; const t = (p[k].x - p.canal.x) * sg / s;
@@ -1510,8 +1519,9 @@ details.card > summary { font-weight: 600; }
       if (!r) { lines.push(`${lab}写真の点が足りず、確かめられませんでした。`); continue; }
       if (!r.ok) { lines.push(`${lab}候補で置き直すと、耳として不自然な形になりました（${r.why}）。自動では直さず、「写真の点を直す」で見てください。`); continue; }
       const nmK = { canal: '穴', top: '上', bottom: '下', h1: 'N1', h2: 'N2' };
-      const moved = r.moved.length ? `動かした点：${r.moved.map((k) => nmK[k]).join('・')}` : '写真の点はどれも合っていそうです';
-      const unsure = r.left.length ? `／写真から判断できなかった点：${r.left.map((k) => nmK[k]).join('・')}` : '';
+      const moved = r.moved.length ? `動かした点：${r.moved.map((k) => nmK[k]).join('・')}` : r.est.length ? '写真の点は動かしていません' : '写真の点はどれも合っていそうです';
+      const unsure = (r.left.length ? `／写真から判断できなかった点：${r.left.map((k) => nmK[k]).join('・')}` : '') +
+        (r.est.length ? `／${r.est.join('・')} は写真から正しく読めなかったので、ふつうの耳の比率から推定しました（写真が斜めのときに起きます。聴いて確かめてください）` : '');
       lines.push(`${lab}N1 ${(now.n1 / 1000).toFixed(2)} → ${(r.n1 / 1000).toFixed(2)} kHz、N2 ${(now.n2 / 1000).toFixed(2)} → ${(r.n2 / 1000).toFixed(2)} kHz（${moved}${unsure}）`);
       if (Math.abs(r.n1 - now.n1) > 5 || Math.abs(r.n2 - now.n2) > 5) prop[e] = { n1: r.n1, n2: r.n2 };
     }
