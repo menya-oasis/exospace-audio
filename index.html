@@ -3227,6 +3227,22 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     for (let i = 0; i < N; i++) { if (fq[i] < lo || fq[i] > hi) continue; const d = g[i] - (pre[i + w] - pre[i]) / w; if (d < bd) { bd = d; best = i; } }
     return best < 0 || bd > -minDepth ? 0 : fq[best];
   }
+  /** per ear (N1, N2) of a personal HRTF file (PC exospace_room.hrtf_notches): N1 = deepest dip in 5-11 kHz at least 3 dB under
+   *  the local 1.5-octave average, N2 = the deepest such dip between 1.15 x N1 and 16 kHz; 0 where there is none */
+  function hrNotchesOf(P, lo = 5000, hi = 11000, minDepth = 3) {
+    const N = 2400, fq = new Float64Array(N); for (let i = 0; i < N; i++) fq[i] = 1000 * Math.pow(18, i / (N - 1));
+    const w = Math.max(3, Math.round(N * (Math.log(2.8) / Math.log(18)))), pw = w >> 1, out = {};
+    for (const ch of ['L', 'R']) {
+      if (!P.curves[ch]) { out[ch] = [0, 0]; continue; }
+      const g = Array.from(fq, (f) => hrInterp(f, P.curves[ch][0], P.curves[ch][1])), pad = [];
+      for (let i = 0; i < pw; i++) pad.push(g[0]); for (const v of g) pad.push(v); for (let i = 0; i < pw; i++) pad.push(g[N - 1]);
+      const pre = [0]; for (const v of pad) pre.push(pre[pre.length - 1] + v);
+      const d = g.map((v, i) => v - (pre[i + w] - pre[i]) / w);
+      const dip = (a, b) => { let best = -1, bd = 1e9; for (let i = 0; i < N; i++) { if (fq[i] < a || fq[i] > b) continue; if (d[i] < bd) { bd = d[i]; best = i; } } return best < 0 || bd > -minDepth ? 0 : fq[best]; };
+      const n1 = dip(lo, hi), n2 = n1 ? dip(1.15 * n1, 16000) : 0; out[ch] = [n1, n2];
+    }
+    return out;
+  }
   /** minimum-phase FIR (cepstral folding) of a magnitude given in dB as a function of frequency */
   function minPhaseFirDb(dbAt, fs, nTaps, nfft) {
     const re = new Float64Array(nfft), im = new Float64Array(nfft), half = nfft >> 1;
@@ -3624,19 +3640,23 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
   const RM_FACES = ['left', 'right', 'back', 'front', 'floor', 'ceiling'];
   const RM_DI_HZ = [63.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0], RM_DI_DB = [0.2, 1.0, 2.5, 4.0, 5.5, 7.0, 9.0, 11.0];
   const ROOM_DEFAULTS = {
-    room_version: 2, room_width: null, room_front: null, room_back: null, room_height: null, room_offset_m: 0.30, room_listener_z: 1.2,
+    room_version: 4, room_width: null, room_front: null, room_back: null, room_height: null, room_offset_m: 0.30, room_listener_z: 1.2,
     room_spk_dist: 1.2, room_spk_az: 30.0, room_spk_z: null, room_toe_in: 1.0, room_dir: 1.0, room_spk_lf_hz: 35.0, room_mix_db: 0.0,
     room_order: 3, room_scatter: null, room_material: 'standard', room_notch_hz: 0.0, room_pinna: 0.6, air_temp: 20.0, air_humidity: 50.0,
     room_len_s: 0.0, room_ceiling_scatter: null, room_ceiling_abs: 0.0, room_len_max_s: 8.0, room_seed: 1,
-    room_bass_trap: null, room_eq_bass: null, room_eq_tone: null, room_auto_place: null, room_fill_250: null,
+    room_bass_trap: null, room_eq_bass: null, room_eq_tone: null, room_auto_place: null,
+    room_notch_l_hz: 0.0, room_notch_r_hz: 0.0, room_notch2_l_hz: 0.0, room_notch2_r_hz: 0.0,   // per ear N1 / N2 (0 = room_notch_hz, 1.35 x N1)
+    room_mid_abs: null, room_center: null, room_layout: null, room_rear_share: null, room_torso: null,
   };
-  const ROOM_VERSION_DEFAULTS = {
-    1: { room_spk_z: 1.2, room_ceiling_scatter: null, room_bass_trap: 0.0, room_eq_bass: 0.0, room_eq_tone: 0.0, room_auto_place: 0.0 },
-    2: { room_spk_z: 1.0, room_ceiling_scatter: 0.9, room_bass_trap: 0.25, room_eq_bass: 1.0, room_eq_tone: 0.5, room_auto_place: 0.0 },
-    // Ver 3 (this port only, not in the PC version): no 250 Hz hump. Ver 2's bass trap covers 63/125 Hz and most materials absorb least
-    // at 250 Hz, so 250 Hz rang longest (standard walls: 1.06 s against 0.68 s at 1 kHz). Ver 3 lifts each face's 250 Hz absorption
-    // to at least the smaller of its 125 Hz and 1 kHz values, so the reverb time no longer peaks there.
-    3: { room_spk_z: 1.0, room_ceiling_scatter: 0.9, room_bass_trap: 0.25, room_eq_bass: 1.0, room_eq_tone: 0.5, room_auto_place: 0.0, room_fill_250: 1.0 },
+  const ROOM_VERSION_DEFAULTS = {          // PC exospace_room.py VERSION_DEFAULTS (Ver 3: even 250 Hz + torso + centre; Ver 4: + layouts)
+    1: { room_spk_z: 1.2, room_ceiling_scatter: null, room_bass_trap: 0.0, room_eq_bass: 0.0, room_eq_tone: 0.0, room_auto_place: 0.0,
+      room_mid_abs: 0.0, room_torso: 0.0, room_center: 0.0, room_layout: '2ch', room_rear_share: 0.0 },
+    2: { room_spk_z: 1.0, room_ceiling_scatter: 0.9, room_bass_trap: 0.25, room_eq_bass: 1.0, room_eq_tone: 0.5, room_auto_place: 0.0,
+      room_mid_abs: 0.0, room_torso: 0.0, room_center: 0.0, room_layout: '2ch', room_rear_share: 0.0 },
+    3: { room_spk_z: 1.0, room_ceiling_scatter: 0.9, room_bass_trap: 0.25, room_eq_bass: 1.0, room_eq_tone: 0.5, room_auto_place: 0.0,
+      room_mid_abs: 0.15, room_torso: 0.5, room_center: 1.0, room_layout: '3ch', room_rear_share: 0.0 },
+    4: { room_spk_z: 1.0, room_ceiling_scatter: 0.9, room_bass_trap: 0.25, room_eq_bass: 1.0, room_eq_tone: 0.5, room_auto_place: 0.0,
+      room_mid_abs: 0.15, room_torso: 0.5, room_center: 1.0, room_layout: '3-2', room_rear_share: 0.5 },
   };
   const ROOM_ENGINE_DEFAULTS = { room_auto: 0.0, room_auto_amount: 1.0, song_attack_db: null, song_gap_decay_s: null, room_norm: 1.0,
     room_norm_db: 0.0, room_trim: 1.0, room_track: 0.0 };
@@ -3645,18 +3665,19 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
   const RM_ABS_HZ = [63.0, 125.0, 250.0, 1000.0, 5000.0, 10000.0];
 
   function rmNum(c, k, d) { const v = c ? c[k] : undefined; const x = (v === null || v === undefined || v === '' || typeof v === 'boolean' && false) ? NaN : Number(v); return isFinite(x) ? x : Number(d); }
-  function rmDefaultsFor(ver) { return Object.assign({}, ROOM_DEFAULTS, ROOM_VERSION_DEFAULTS[ver] || ROOM_VERSION_DEFAULTS[2]); }
+  function rmDefaultsFor(ver) { return Object.assign({}, ROOM_DEFAULTS, ROOM_VERSION_DEFAULTS[ver] || ROOM_VERSION_DEFAULTS[4]); }
   function rmParams(cfg) {
     cfg = cfg || {};
-    let ver = Math.round(Number(cfg.room_version !== null && cfg.room_version !== undefined ? cfg.room_version : 2)); if (!isFinite(ver)) ver = 2;
-    ver = ver <= 1 ? 1 : ver >= 3 ? 3 : 2;
+    let ver = rmPyRound(Number(cfg.room_version !== null && cfg.room_version !== undefined ? cfg.room_version : ROOM_DEFAULTS.room_version)); if (!isFinite(ver)) ver = ROOM_DEFAULTS.room_version;
+    ver = Math.max(1, Math.min(4, ver));
     const p = rmDefaultsFor(ver); p.room_version = ver;
     for (const k of Object.keys(ROOM_DEFAULTS)) if (cfg[k] !== null && cfg[k] !== undefined) p[k] = cfg[k];
     if (p.room_ceiling_scatter !== null && p.room_ceiling_scatter !== undefined) p.room_ceiling_scatter = Math.min(Math.max(rmNum(p, 'room_ceiling_scatter', 0.0), 0.0), 0.95);
     for (const k of Object.keys(RM_P21)) { if (p[k] === null || p[k] === undefined) p[k] = rmNum(cfg, RM_P21[k][0], RM_P21[k][1]); p[k] = Number(p[k]); }
     const dv = rmDefaultsFor(ver);
     for (const k of ['room_offset_m', 'room_listener_z', 'room_spk_dist', 'room_spk_az', 'room_spk_z', 'room_toe_in', 'room_dir', 'room_spk_lf_hz', 'room_mix_db',
-      'room_notch_hz', 'room_pinna', 'air_temp', 'air_humidity', 'room_len_s', 'room_len_max_s', 'room_ceiling_abs', 'room_bass_trap', 'room_eq_bass', 'room_eq_tone', 'room_auto_place', 'room_fill_250']) p[k] = rmNum(p, k, dv[k]);
+      'room_notch_hz', 'room_notch_l_hz', 'room_notch_r_hz', 'room_notch2_l_hz', 'room_notch2_r_hz', 'room_pinna', 'air_temp', 'air_humidity',
+      'room_len_s', 'room_len_max_s', 'room_ceiling_abs', 'room_bass_trap', 'room_eq_bass', 'room_eq_tone', 'room_auto_place', 'room_mid_abs', 'room_torso']) p[k] = rmNum(p, k, dv[k]);
     p.room_order = Math.trunc(Math.max(0, Math.min(6, rmPyRound(rmNum(p, 'room_order', 3)))));
     p.room_seed = Math.trunc(rmNum(p, 'room_seed', 1));
     p.wall_faces_6d = cfg.wall_faces_6d; p.audience_absorb_low = cfg.audience_absorb_low !== undefined ? cfg.audience_absorb_low : 0.0;
@@ -3684,7 +3705,8 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     if (face === 'floor') { let aud = Number(p.audience_absorb_low || 0.0); if (!isFinite(aud)) aud = 0.0; aud = Math.min(Math.max(aud, 0.0), 1.0); a = a.map((v) => 1.0 - (1.0 - v) * (1.0 - aud)); }
     const trap = Math.min(Math.max(Number(p.room_bass_trap || 0.0), 0.0), 1.0);
     if (trap > 0.0) { a[0] = 1.0 - (1.0 - a[0]) * (1.0 - trap * 1.0); a[1] = 1.0 - (1.0 - a[1]) * (1.0 - trap * 0.6); }
-    if (Number(p.room_fill_250 || 0.0) > 0.0) a[2] = Math.max(a[2], Math.min(a[1], a[3]));
+    const midAbs = Math.min(Math.max(Number(p.room_mid_abs || 0.0), 0.0), 0.9);
+    if (midAbs > 0.0) a[2] = Math.max(a[2], midAbs);     // Ver 3: the 250 Hz node no lower than this (500 Hz follows)
     if (face === 'ceiling' && Number(p.room_ceiling_abs || 0.0) > 0.0) { const ca = Math.min(Number(p.room_ceiling_abs), 0.95); a = a.map((v) => 1.0 - (1.0 - v) * (1.0 - ca)); }
     const extra = Number(p._a_extra || 0.0);
     if (extra > 0.0) a = a.map((v) => 1.0 - (1.0 - v) * (1.0 - extra));
@@ -3843,7 +3865,8 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     const A = Math.pow(10.0, gain / 40.0), w0 = 2.0 * Math.PI * f0 / fs, al = Math.sin(w0) / (2.0 * q), c = Math.cos(w0), a0 = 1.0 + al / A;
     return [(1.0 + al * A) / a0, -2.0 * c / a0, (1.0 - al * A) / a0, 1.0, -2.0 * c / a0, (1.0 - al / A) / a0];
   }
-  function rmPinnaSos(fs, az, el, ear, pinna, notch0, hrtfMode) {
+  function rmPinnaSos(fs, az, el, ear, pinna, notch0, hrtfMode, f2Ratio) {
+    if (f2Ratio === undefined) f2Ratio = 1.35;
     const D = Math.PI / 180, n2 = 0.7, p1 = 0.5, eqDb = 2.0;
     const lat = Math.asin(Math.max(-1, Math.min(1, Math.sin(az * D) * Math.cos(el * D)))) / D;
     const near = lat >= 0.0 ? 'R' : 'L', isNear = ear === near, c = Math.cos(az * D), rw = Math.max(0.0, -c), fw = Math.max(0.0, c);
@@ -3851,7 +3874,7 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     const wear = isNear ? 1.0 : 1.0 - 0.5 * Math.min(1.0, Math.abs(lat) / 30.0);
     const sc = hrtfMode ? Math.min(1.0, Math.max(0.0, Math.abs(el) / 30.0 + rw)) : 1.0;
     const f1 = Math.min(Math.max(notch0 + (el >= 0.0 ? 44.0 : 38.0) * el, 3500.0), Math.min(13000.0, 0.42 * fs));
-    const f2 = Math.min(1.35 * f1, 14500.0, 0.45 * fs), d = 8.0 * pinna * wear * sc;
+    const f2 = Math.min(f2Ratio * f1, f2Ratio !== 1.35 ? 16000.0 : 14500.0, 0.45 * fs), d = 8.0 * pinna * wear * sc;
     sec.push(rmPeq(fs, f1, -d, 3.5), rmPeq(fs, f2, -d * n2, 3.5), rmPeq(fs, 4000.0, 3.0 * p1 * pinna * wear * fw * sc, 2.0));
     return sec;
   }
@@ -3992,6 +4015,78 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     return () => { if (spare !== null) { const v = spare; spare = null; return v; } let u, v, s; do { u = 2 * u32() - 1; v = 2 * u32() - 1; s = u * u + v * v; } while (s >= 1 || s === 0); const m = Math.sqrt(-2 * Math.log(s) / s); spare = v * m; return u * m; };
   }
 
+  // ---- torso / shoulder reflection (Brown & Duda 1998 structural model; PC torso_reflection) -------------------------------
+  const RM_TORSO_LP = 3000.0, RM_TORSO_HP = 400.0;
+  function rmTorsoReflection(uh, ear, amount) {
+    const lat = Math.asin(Math.max(-1.0, Math.min(1.0, uh[0]))) * 180.0 / Math.PI, theta = ear === 1 ? lat : -lat;
+    let phi = Math.atan2(uh[2], uh[1]) * 180.0 / Math.PI; if (phi < -90.0) phi += 360.0;
+    const br = 1.0 - 0.00004 * ((phi - 80.0) * 180.0 / (180.0 + theta)) ** 2;
+    if (br <= 0.0) return [0.0, 0.0];
+    const t = 1.2e-3 * (180.0 - theta) / 180.0 * br;
+    const w = phi <= 90.0 ? Math.min(Math.max((phi + 50.0) / 30.0, 0.0), 1.0) : Math.min(Math.max((230.0 - phi) / 30.0, 0.0), 1.0);
+    return [0.5 * amount * w, Math.max(t, 0.0)];
+  }
+  /** direct sound + image sources of the speakers `spk` ([[pos, axis], ...]) at the two ears (PC _image_part, yaw 0) */
+  function rmImagePart(p, fs, N, dims, L, spk) {
+    const T = sphereTable(fs), fk = T.f, nk = T.nb, step = Math.PI / 180.0;
+    const ev = [[-Math.sin(RM_EAR_AZ * Math.PI / 180), Math.cos(RM_EAR_AZ * Math.PI / 180), 0.0], [Math.sin(RM_EAR_AZ * Math.PI / 180), Math.cos(RM_EAR_AZ * Math.PI / 180), 0.0]];
+    const notch = p.room_notch_hz > 0 ? p.room_notch_hz : 7500.0, hrtfMode = p.room_notch_hz > 0 || p.room_notch_l_hz > 0 || p.room_notch_r_hz > 0;
+    const earN = [['l', 0], ['r', 1]].map(([lr]) => { const n1 = Number(p['room_notch_' + lr + '_hz'] || 0.0) || notch, n2 = Number(p['room_notch2_' + lr + '_hz'] || 0.0); return [n1, n2 > n1 * 1.05 ? n2 / n1 : 1.35]; });
+    const torso = Math.min(Math.max(Number(p.room_torso || 0.0), 0.0), 2.0);
+    const torsoLp = Float64Array.from(fk, (f) => 1.0 / Math.sqrt(1.0 + (f / RM_TORSO_LP) ** 4) / Math.sqrt(1.0 + (RM_TORSO_HP / Math.max(f, 1.0)) ** 4));
+    const wk = Float64Array.from(fk, (f) => 2.0 * Math.PI * f / fs), z1r = wk.map((w) => Math.cos(w)), z1i = wk.map((w) => -Math.sin(w));
+    const z2r = z1r.map((r, i) => r * r - z1i[i] * z1i[i]), z2i = z1r.map((r, i) => 2 * r * z1i[i]);
+    const faceAb = RM_FACES.map((fc) => rmFaceMaterial(p, fc));
+    const reflK = faceAb.map(([a, s]) => Float64Array.from(fk, (f) => Math.sqrt(1.0 - rmAlphaAt(a, f)) * Math.sqrt(1.0 - rmScatterAt(s, f))));
+    const airK = Float64Array.from(fk, (f) => rmAir(f, p));
+    const nyq = Float64Array.from(fk, (f) => { const xn = Math.min(Math.max((f / (0.5 * fs) - 0.83) / 0.17, 0.0), 1.0); return Math.cos(0.5 * Math.PI * xn) ** 2; });
+    const fade = new Float64Array(RM_KN).fill(1.0), q4 = RM_KN / 4; for (let k = 1; k <= q4; k++) fade[RM_KN - q4 + k - 1] = 0.5 * (1.0 + Math.cos(Math.PI * k / q4));
+    const histDt = 0.001, nHist = Math.trunc(N / fs / histDt) + 1, hist = [0, 1].map(() => RM_OCT.map(() => new Float64Array(nHist)));
+    const reflO = faceAb.map(([a, s]) => RM_OCT.map((f) => Math.sqrt(1.0 - rmAlphaAt(a, f)) * Math.sqrt(1.0 - rmScatterAt(s, f)))), airO = RM_OCT.map((f) => rmAir(f, p));
+    const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    const rDir = dist(spk[0][0], L), tFirst = []; let nImg = 0;
+    const h = spk.map(() => [new Float64Array(N + RM_KN), new Float64Array(N + RM_KN)]);
+    const hDir = spk.map(() => [new Float64Array(N + RM_KN), new Float64Array(N + RM_KN)]);
+    const pinCache = {}, sr = new Float64Array(nk), si = new Float64Array(nk);
+    for (let s = 0; s < spk.length; s++) {
+      const [pos, axis] = spk[s], rS = dist(pos, L);
+      for (const [img, hits, par] of rmImages(pos, dims, p.room_order)) {
+        const v = [img[0] - L[0], img[1] - L[1], img[2] - L[2]], path = Math.hypot(v[0], v[1], v[2]), t = path / RM_C;
+        const u = v.map((x) => x / path), dep = [0, 1, 2].map((i) => (L[i] - img[i]) / path * (par[i] === 1 ? -1.0 : 1.0));
+        const cosDep = dep[0] * axis[0] + dep[1] * axis[1] + dep[2] * axis[2], order = hits.reduce((a, b) => a + b, 0);
+        const gk = new Float64Array(nk);
+        for (let k = 0; k < nk; k++) gk[k] = (rDir / path) * Math.pow(10.0, -airK[k] * path / 20.0) * Math.pow(10.0, rmDirDb(fk[k], cosDep, p.room_dir) / 20.0);
+        const go = RM_OCT.map((f, b) => (rDir / path) * Math.pow(10.0, -airO[b] * path / 20.0) * Math.pow(10.0, rmDirDb(f, cosDep, p.room_dir) / 20.0));
+        for (let fi = 0; fi < 6; fi++) if (hits[fi]) { for (let k = 0; k < nk; k++) gk[k] *= Math.pow(reflK[fi][k], hits[fi]); for (let b = 0; b < 9; b++) go[b] *= Math.pow(reflO[fi][b], hits[fi]); }
+        if (order === 1) tFirst.push(t - rS / RM_C);
+        const kt = Math.trunc((t - rS / RM_C) / histDt);
+        if (order > 0 && kt < nHist && s < 2) for (let b = 0; b < 9; b++) hist[s][b][kt] += go[b] * go[b];
+        const az = Math.atan2(u[0], u[1]) * 180.0 / Math.PI, el = Math.asin(Math.max(-1.0, Math.min(1.0, u[2]))) * 180.0 / Math.PI;
+        const d = t * fs, di = Math.floor(d), frac = d - di;
+        for (let e = 0; e < 2; e++) {
+          const ce = u[0] * ev[e][0] + u[1] * ev[e][1] + u[2] * ev[e][2], th = Math.acos(Math.max(-1.0, Math.min(1.0, ce)));
+          const i0 = Math.min(Math.trunc(th / step), 179), fr = th / step - i0;
+          const key = az.toFixed(1) + ',' + el.toFixed(1) + ',' + e;
+          let pz = pinCache[key];
+          if (!pz) { const pr = new Float64Array(nk), pi = new Float64Array(nk); rmSosResp(rmPinnaSos(fs, az, el, e === 0 ? 'L' : 'R', p.room_pinna, earN[e][0], hrtfMode, earN[e][1]), z1r, z1i, z2r, z2i, pr, pi); pz = pinCache[key] = [pr, pi]; }
+          let tg = 0.0, tt = 0.0; if (torso > 0.0) [tg, tt] = rmTorsoReflection(u, e, torso);
+          for (let k = 0; k < nk; k++) {
+            let hr = (1.0 - fr) * T.tr[i0 * nk + k] + fr * T.tr[(i0 + 1) * nk + k], hi = (1.0 - fr) * T.ti[i0 * nk + k] + fr * T.ti[(i0 + 1) * nk + k];
+            if (tg > 0.0) { const a = tg * torsoLp[k], w = -2.0 * Math.PI * fk[k] * tt, mr = 1.0 + a * Math.cos(w), mi = a * Math.sin(w), r0 = hr; hr = r0 * mr - hi * mi; hi = r0 * mi + hi * mr; }
+            const ph = -wk[k] * (frac + RM_KLEAD), er = Math.cos(ph), ei = Math.sin(ph);
+            const a1 = hr * pz[0][k] - hi * pz[1][k], b1 = hr * pz[1][k] + hi * pz[0][k], mg = gk[k] * nyq[k];
+            sr[k] = mg * (a1 * er - b1 * ei); si[k] = mg * (a1 * ei + b1 * er);
+          }
+          const ker = rmIrfft(sr, si, RM_KN);
+          let iS = di - RM_KLEAD, k0 = 0; if (iS < 0) { k0 = -iS; iS = 0; }
+          const iE = Math.min(iS + RM_KN - k0, N + RM_KN), dst = h[s][e], dd = hDir[s][e];
+          for (let i = iS, k = k0; i < iE; i++, k++) { const vk = ker[k] * fade[k]; dst[i] += vk; if (order === 0) dd[i] += vk; }
+        }
+        nImg++;
+      }
+    }
+    return { h, hDir, hist, tFirst, nImg, nHist, histDt };
+  }
   /** build_brir(cfg, fs): returns {parts, info} (parts: spectra the response is assembled from) */
   function buildBrir(cfg, fs, opts) {
     opts = opts || {}; const t0 = Date.now(), p = rmParams(cfg);
@@ -4006,58 +4101,8 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     const length = p.room_len_s > 0 ? p.room_len_s : Math.min(lengthAuto, Math.max(1.0, p.room_len_max_s)), truncated = p.room_len_s <= 0 && lengthAuto > length;
     const N = 1 << Math.ceil(Math.log2(length * fs)), nb = N / 2 + 1;
     // ---- direct sound + image sources
-    const T = sphereTable(fs), fk = T.f, nk = T.nb, step = Math.PI / 180.0;
-    const ev = [[-Math.sin(RM_EAR_AZ * Math.PI / 180), Math.cos(RM_EAR_AZ * Math.PI / 180), 0.0], [Math.sin(RM_EAR_AZ * Math.PI / 180), Math.cos(RM_EAR_AZ * Math.PI / 180), 0.0]];
-    const notch = p.room_notch_hz > 0 ? p.room_notch_hz : 7500.0, hrtfMode = p.room_notch_hz > 0;
-    const wk = Float64Array.from(fk, (f) => 2.0 * Math.PI * f / fs), z1r = wk.map((w) => Math.cos(w)), z1i = wk.map((w) => -Math.sin(w));
-    const z2r = z1r.map((r, i) => r * r - z1i[i] * z1i[i]), z2i = z1r.map((r, i) => 2 * r * z1i[i]);
-    const faceAb = RM_FACES.map((fc) => rmFaceMaterial(p, fc));
-    const reflK = faceAb.map(([a, s]) => Float64Array.from(fk, (f) => Math.sqrt(1.0 - rmAlphaAt(a, f)) * Math.sqrt(1.0 - rmScatterAt(s, f))));
-    const airK = Float64Array.from(fk, (f) => rmAir(f, p));
-    const nyq = Float64Array.from(fk, (f) => { const xn = Math.min(Math.max((f / (0.5 * fs) - 0.83) / 0.17, 0.0), 1.0); return Math.cos(0.5 * Math.PI * xn) ** 2; });
-    const fade = new Float64Array(RM_KN).fill(1.0), q4 = RM_KN / 4; for (let k = 1; k <= q4; k++) fade[RM_KN - q4 + k - 1] = 0.5 * (1.0 + Math.cos(Math.PI * k / q4));
-    const histDt = 0.001, nHist = Math.trunc(N / fs / histDt) + 1, hist = [0, 1].map(() => RM_OCT.map(() => new Float64Array(nHist)));
-    const reflO = faceAb.map(([a, s]) => RM_OCT.map((f) => Math.sqrt(1.0 - rmAlphaAt(a, f)) * Math.sqrt(1.0 - rmScatterAt(s, f)))), airO = RM_OCT.map((f) => rmAir(f, p));
-    const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-    const rDir = dist(spk[0][0], L), tFirst = []; let nImg = 0;
-    const h = [[new Float64Array(N + RM_KN), new Float64Array(N + RM_KN)], [new Float64Array(N + RM_KN), new Float64Array(N + RM_KN)]];
-    const hDir = [[new Float64Array(N + RM_KN), new Float64Array(N + RM_KN)], [new Float64Array(N + RM_KN), new Float64Array(N + RM_KN)]];
-    const pinCache = {}, sr = new Float64Array(nk), si = new Float64Array(nk);
-    for (let s = 0; s < 2; s++) {
-      const [pos, axis] = spk[s], rS = dist(pos, L);
-      for (const [img, hits, par] of rmImages(pos, dims, p.room_order)) {
-        const v = [img[0] - L[0], img[1] - L[1], img[2] - L[2]], path = Math.hypot(v[0], v[1], v[2]), t = path / RM_C;
-        const u = v.map((x) => x / path), dep = [0, 1, 2].map((i) => (L[i] - img[i]) / path * (par[i] === 1 ? -1.0 : 1.0));
-        const cosDep = dep[0] * axis[0] + dep[1] * axis[1] + dep[2] * axis[2], order = hits.reduce((a, b) => a + b, 0);
-        const gk = new Float64Array(nk);
-        for (let k = 0; k < nk; k++) gk[k] = (rDir / path) * Math.pow(10.0, -airK[k] * path / 20.0) * Math.pow(10.0, rmDirDb(fk[k], cosDep, p.room_dir) / 20.0);
-        const go = RM_OCT.map((f, b) => (rDir / path) * Math.pow(10.0, -airO[b] * path / 20.0) * Math.pow(10.0, rmDirDb(f, cosDep, p.room_dir) / 20.0));
-        for (let fi = 0; fi < 6; fi++) if (hits[fi]) { for (let k = 0; k < nk; k++) gk[k] *= Math.pow(reflK[fi][k], hits[fi]); for (let b = 0; b < 9; b++) go[b] *= Math.pow(reflO[fi][b], hits[fi]); }
-        if (order === 1) tFirst.push(t - rS / RM_C);
-        const kt = Math.trunc((t - rS / RM_C) / histDt);
-        if (order > 0 && kt < nHist) for (let b = 0; b < 9; b++) hist[s][b][kt] += go[b] * go[b];
-        const az = Math.atan2(u[0], u[1]) * 180.0 / Math.PI, el = Math.asin(Math.max(-1.0, Math.min(1.0, u[2]))) * 180.0 / Math.PI;
-        const d = t * fs, di = Math.floor(d), frac = d - di;
-        for (let e = 0; e < 2; e++) {
-          const ce = u[0] * ev[e][0] + u[1] * ev[e][1] + u[2] * ev[e][2], th = Math.acos(Math.max(-1.0, Math.min(1.0, ce)));
-          const i0 = Math.min(Math.trunc(th / step), 179), fr = th / step - i0;
-          const key = az.toFixed(1) + ',' + el.toFixed(1) + ',' + e;
-          let pz = pinCache[key];
-          if (!pz) { const pr = new Float64Array(nk), pi = new Float64Array(nk); rmSosResp(rmPinnaSos(fs, az, el, e === 0 ? 'L' : 'R', p.room_pinna, notch, hrtfMode), z1r, z1i, z2r, z2i, pr, pi); pz = pinCache[key] = [pr, pi]; }
-          for (let k = 0; k < nk; k++) {
-            const hr = (1.0 - fr) * T.tr[i0 * nk + k] + fr * T.tr[(i0 + 1) * nk + k], hi = (1.0 - fr) * T.ti[i0 * nk + k] + fr * T.ti[(i0 + 1) * nk + k];
-            const ph = -wk[k] * (frac + RM_KLEAD), er = Math.cos(ph), ei = Math.sin(ph);
-            const a1 = hr * pz[0][k] - hi * pz[1][k], b1 = hr * pz[1][k] + hi * pz[0][k], mg = gk[k] * nyq[k];
-            sr[k] = mg * (a1 * er - b1 * ei); si[k] = mg * (a1 * ei + b1 * er);
-          }
-          const ker = rmIrfft(sr, si, RM_KN);
-          let iS = di - RM_KLEAD, k0 = 0; if (iS < 0) { k0 = -iS; iS = 0; }
-          const iE = Math.min(iS + RM_KN - k0, N + RM_KN), dst = h[s][e], dd = hDir[s][e];
-          for (let i = iS, k = k0; i < iE; i++, k++) { const vk = ker[k] * fade[k]; dst[i] += vk; if (order === 0) dd[i] += vk; }
-        }
-        nImg++;
-      }
-    }
+    const { h, hDir, hist, tFirst, nImg, nHist, histDt } = rmImagePart(p, fs, N, dims, L, spk);
+    const faceAb = RM_FACES.map((fc) => rmFaceMaterial(p, fc)), rDir = Math.hypot(spk[0][0][0] - L[0], spk[0][0][1] - L[1], spk[0][0][2] - L[2]);
     const hh = h.map((r) => r.map((x) => x.subarray(0, N))), hd = hDir.map((r) => r.map((x) => x.subarray(0, N)));
     // ---- diffuse fill
     const tAx = Float64Array.from({ length: nHist }, (_, k) => k * histDt);
@@ -4134,13 +4179,14 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     const Hhi = hh.map((r) => r.map((x) => rmRfft(x, N))), Hd = hd.map((r) => r.map((x) => rmRfft(x, N)));
     const hhp = rmButterResp(4, Math.max(10.0, p.room_spk_lf_hz), fs, 'high', wz);
     const v2 = p.room_version >= 2;
-    const parts = { fs, N, f: ff, lo, hi: Hhi, dir: Hd, hpc, lpc, hh: hhp, mixLo: v2, eq: v2 ? [p.room_eq_bass, p.room_eq_tone] : null };
+    const parts = { fs, N, f: ff, lo, hi: Hhi, dir: Hd, hpc, lpc, hh: hhp, mixLo: v2, eq: v2 ? [p.room_eq_bass, p.room_eq_tone] : null,
+      base: { p, dims, L, spk, rDir } };
     const info = { dims, listener: L, speakers: spk.map((x) => x[0]), t_oct: tOct, t_mix_ms: 1000 * tMix, f_x: fX, first_refl_ms: 1000 * t1, n_images: nImg,
       direct_ms: 1000 * tDir, N, fill_energy: fillInfo, truncated, length_s: length, absorb_extra: p._a_extra, version: p.room_version, build_ms: Date.now() - t0 };
     return { parts, info };
   }
   /** assemble(parts, mix_db): BRIR [s][e] Float64Array(N) */
-  function rmAssemble(parts, mixDb) {
+  function rmAssemble(parts, mixDb, Ggiven) {
     const gm = Math.pow(10.0, mixDb / 20.0), N = parts.N, nb = N / 2 + 1, out = [[null, null], [null, null]], specs = [[null, null], [null, null]];
     for (let s = 0; s < 2; s++) for (let e = 0; e < 2; e++) {
       const hi = parts.hi[s][e], dr = parts.dir[s][e], re = new Float64Array(nb), im = new Float64Array(nb);
@@ -4182,8 +4228,9 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
         gdb *= Math.min(Math.max((f2[k] - 30.0) / 15.0, 0.0), 1.0); gmin = Math.min(gmin, gdb); gmax = Math.max(gmax, gdb);
         mag[k] = Math.pow(10.0, gdb / 20.0);
       }
-      parts.eqRange = [gmin, gmax];
-      const G = rmMinPhase(mag), q = Math.max(1, Math.trunc(N / 50));
+      if (!Ggiven) parts.eqRange = [gmin, gmax];
+      const G = Ggiven || rmMinPhase(mag), q = Math.max(1, Math.trunc(N / 50));
+      parts.eqG = G;
       for (let s = 0; s < 2; s++) for (let e = 0; e < 2; e++) {
         const X = H2[s][e], re = new Float64Array(nb2), im = new Float64Array(nb2);
         for (let k = 0; k < nb2; k++) { re[k] = X.re[k] * G.re[k] - X.im[k] * G.im[k]; im[k] = X.re[k] * G.im[k] + X.im[k] * G.re[k]; }
@@ -4228,15 +4275,94 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     return Math.min(Math.max(mix, -30.0), 12.0);
   }
   /** ExoSpaceRoomEngine._response: {h [s][e], dry, lead, gainDb} */
+
+  // ---- loudspeaker layouts (Ver 4; PC LAYOUTS / apply_rear) -----------------------------------------------------------------
+  // A stereo recording has no rear channels: the rear speakers play only room reverberation. The late part (from 80 ms after
+  // the direct sound, above about 150 Hz) is shared between "all around" (the room) and the rear speakers, each with its own
+  // decorrelated noise, per octave with the room's own reverberation time; the total late energy per octave stays the same.
+  const RM_LAYOUTS = { '2ch': [false, []], '3ch': [true, []], '3-1': [true, [180.0]], '2-2': [false, [-120.0, 120.0]], '3-2': [true, [-120.0, 120.0]] };
+  const RM_REAR_START = 0.080, RM_REAR_FADE = 0.020;
+  function rmOctWeights(f) {                              // amplitude weights, cos^2 on a log2 axis (neighbours sum to 1)
+    return RM_OCT.map((fc, b) => Float64Array.from(f, (x) => {
+      if (b === 0 && x <= RM_OCT[0]) return 1.0;
+      if (b === RM_OCT.length - 1 && x >= RM_OCT[RM_OCT.length - 1]) return 1.0;
+      const d = Math.log2(Math.max(x, 1.0) / fc); return Math.abs(d) < 1.0 ? Math.cos(0.5 * Math.PI * d) ** 2 : 0.0; }));
+  }
+  /** move `share` of the late reverberation of h ([s][e], untrimmed) to the rear speakers of `layout` (PC apply_rear).
+   *  The FFT grid is the next power of two (numpy uses n + 1024); noise: opts.rearNoise (tests: numpy's) or our own. */
+  function rmApplyRear(h, parts, info, fs, layout, share, opts) {
+    const rear = (RM_LAYOUTS[layout] || RM_LAYOUTS['2ch'])[1];
+    share = Math.min(Math.max(Number(share) || 0.0, 0.0), 0.95);
+    if (!rear.length || share <= 0.0 || !parts.base) return h;
+    opts = opts || {};
+    const base = parts.base, p = base.p, n = h[0][0].length;
+    const t0 = base.rDir / RM_C + RM_REAR_START, wl = new Float64Array(n);
+    for (let i = 0; i < n; i++) { const x = Math.min(Math.max((i / fs - (t0 - RM_REAR_FADE)) / RM_REAR_FADE, 0.0), 1.0); wl[i] = 0.5 - 0.5 * Math.cos(Math.PI * x); }
+    let nf = 1; while (nf < n + RM_KN) nf <<= 1;
+    const nb = nf / 2 + 1, f = rmRfftFreq(nf, fs), wb = rmOctWeights(f), bands = [];
+    for (let b = 0; b < RM_OCT.length; b++) if (RM_OCT[b] >= 250.0) bands.push(b);
+    const hp = new Float64Array(nb); for (const b of bands) for (let k = 0; k < nb; k++) hp[k] += wb[b][k]; for (let k = 0; k < nb; k++) hp[k] = Math.min(Math.max(hp[k], 0.0), 1.0);
+    const E = RM_OCT.map(() => 0.0), out = h.map((r) => r.map((x) => Float64Array.from(x))), cut = 1.0 - Math.sqrt(1.0 - share);
+    for (let s = 0; s < 2; s++) for (let e = 0; e < 2; e++) {
+      const x = h[s][e], hl = new Float64Array(n); for (let i = 0; i < n; i++) hl[i] = x[i] * wl[i];
+      const HL = rmRfft(hl, nf);
+      for (let b = 0; b < RM_OCT.length; b++) { let a = 0.0; for (let k = 0; k < nb; k++) a += (HL.re[k] ** 2 + HL.im[k] ** 2) * wb[b][k] ** 2; E[b] += 2.0 / nf * a; }
+      const re = new Float64Array(nb), im = new Float64Array(nb); for (let k = 0; k < nb; k++) { re[k] = HL.re[k] * hp[k]; im[k] = HL.im[k] * hp[k]; }
+      const lp = rmIrfft(re, im, nf), o = out[s][e];
+      for (let i = 0; i < n; i++) o[i] -= cut * lp[i] * wl[i];          // the room's own late part above ~150 Hz, by sqrt(1 - share)
+    }
+    // rear speakers: direct sound only (sphere + pinna + air, torso too), on axis, at the front speakers' distance
+    const L = base.L, fp = base.spk[0][0], dist = Math.hypot(fp[0] - L[0], fp[1] - L[1], fp[2] - L[2]), spk = [];
+    for (const az of rear) {
+      const a = az * Math.PI / 180, pos = [L[0] + dist * Math.sin(a), L[1] + dist * Math.cos(a), L[2] + (fp[2] - L[2])];
+      const d = Math.hypot(L[0] - pos[0], L[1] - pos[1], L[2] - pos[2]); spk.push([pos, [(L[0] - pos[0]) / d, (L[1] - pos[1]) / d, (L[2] - pos[2]) / d]]);
+    }
+    const p0 = Object.assign({}, p, { room_order: 0 });
+    const ip = rmImagePart(p0, fs, nf, base.dims, L, spk);
+    const D = spk.map((_, k) => [0, 1].map((e) => rmRfft(ip.hDir[k][e], nf)));
+    const route = spk.length === 2 ? [[0, 0], [1, 1]] : [[0, 0], [1, 0]], gainIn = spk.length === 2 ? 1.0 : Math.sqrt(0.5);
+    const rng = opts.rearNoise ? null : rmNoise(17);
+    const noise = spk.map((_, k) => { const z = new Float64Array(n); if (opts.rearNoise) z.set(opts.rearNoise[k].subarray(0, n)); else for (let i = 0; i < n; i++) z[i] = rng(); for (let i = 0; i < n; i++) z[i] *= wl[i]; return rmRfft(z, nf); });
+    const tt = info.t_oct || [];
+    for (const b of bands) {
+      const T = Number(tt[b] !== undefined ? tt[b] : (tt[7] !== undefined ? tt[7] : 0.5)) || 0.5, env = new Float64Array(n);
+      for (let i = 0; i < n; i++) env[i] = Math.exp(-6.91 * Math.max(i / fs - t0, 0.0) / Math.max(T, 0.05));
+      const X = spk.map((_, k) => {
+        const re = new Float64Array(nb), im = new Float64Array(nb); for (let q = 0; q < nb; q++) { re[q] = noise[k].re[q] * wb[b][q]; im[q] = noise[k].im[q] * wb[b][q]; }
+        const nk = rmIrfft(re, im, nf).subarray(0, n); for (let i = 0; i < n; i++) nk[i] *= env[i] * wl[i];
+        const Nk = rmRfft(nk, nf);
+        return [0, 1].map((e) => { const r2 = new Float64Array(nb), i2 = new Float64Array(nb), Dd = D[k][e];
+          for (let q = 0; q < nb; q++) { r2[q] = Nk.re[q] * Dd.re[q] - Nk.im[q] * Dd.im[q]; i2[q] = Nk.re[q] * Dd.im[q] + Nk.im[q] * Dd.re[q]; }
+          return rmIrfft(r2, i2, nf).subarray(0, n); });
+      });
+      let eR = 0.0; for (const [, k] of route) for (const x of X[k]) { let a = 0.0; for (let i = 0; i < n; i++) a += x[i] * x[i]; eR += gainIn * gainIn * a; }
+      if (eR <= 0.0) continue;
+      const g = Math.sqrt(share * E[b] / eR);
+      for (const [sIn, k] of route) for (let e = 0; e < 2; e++) { const o = out[sIn][e], x = X[k][e]; for (let i = 0; i < n; i++) o[i] += g * gainIn * x[i]; }
+    }
+    return out;
+  }
+  function rmLayoutOf(cfg) {                               // PC _layout: Ver 4 setting; earlier versions keep their own
+    const ver = rmParams(cfg).room_version;
+    if (ver < 4) return rmDefaultsFor(ver).room_layout;
+    const v = cfg.room_layout !== null && cfg.room_layout !== undefined ? cfg.room_layout : rmDefaultsFor(ver).room_layout;
+    return RM_LAYOUTS[v] ? v : '2ch';
+  }
+  function rmRearShareOf(cfg) {
+    const lay = rmLayoutOf(cfg); if (!RM_LAYOUTS[lay][1].length) return 0.0;
+    const v = cfg.room_rear_share !== null && cfg.room_rear_share !== undefined ? cfg.room_rear_share : rmDefaultsFor(rmParams(cfg).room_version).room_rear_share;
+    return Math.min(Math.max(rmNum({ v }, 'v', 0.0), 0.0), 0.95);
+  }
   function roomResponse(parts, info, cfg, fs) {
     const mix = rmEffectiveMix(cfg), normDb = rmNum(cfg, 'room_norm_db', 0.0), norm = rmNum(cfg, 'room_norm', 1.0) >= 0.5, trim = rmNum(cfg, 'room_trim', 1.0) >= 0.5;
     let h = rmAssemble(parts, mix);
     if (info.truncated) { const n = h[0][0].length, q = Math.trunc(n / 6); for (const r of h) for (const x of r) for (let k = 1; k <= q; k++) x[n - q + k - 1] *= 0.5 * (1.0 + Math.cos(Math.PI * k / q)); }
+    h = rmApplyRear(h, parts, info, fs, rmLayoutOf(cfg), rmRearShareOf(cfg), cfg._rearOpts);
     let lead = 0;
     if (trim) { const tr = rmTrimLead(h, 24 + (rmNum(cfg, 'room_track', 0.0) >= 0.5 ? Math.trunc(0.001 * fs) : 0)); h = tr.h; lead = tr.lead; h = rmTrimTail(h, fs); }
     let gn = norm ? rmLoudnessGain(h, fs) : 1.0; gn *= Math.pow(10.0, normDb / 20.0);
     const out = h.map((r) => r.map((x) => { const y = new Float64Array(x.length); for (let i = 0; i < x.length; i++) y[i] = x[i] * gn; return y; }));
-    return { h: out, dry: 0.0, lead, gainDb: 20.0 * Math.log10(gn), mixDb: mix };
+    return { h: out, dry: 0.0, lead, gain: gn, gainDb: 20.0 * Math.log10(gn), mixDb: mix };
   }
 
   // ---- Pro22: the input as it is + ROOM's room part ------------------------------------------------------------------------
@@ -4282,19 +4408,35 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
     for (const k of ['p21_room_width', 'p21_room_front', 'p21_room_back', 'p21_room_height', 'wall_faces_6d', 'audience_absorb_low', 'air_temp', 'air_humidity']) if (S[k] !== undefined) c[k] = S[k];
     if ((S.room_spk_dist === undefined || S.room_spk_dist === null) && S.r_distance !== undefined) { const v = Number(S.r_distance); if (isFinite(v)) c.room_spk_dist = v; }
     if (!S.room_notch_hz) c.room_notch_hz = notchHz > 0 ? notchHz : 0.0;
+    if (S._rearOpts) c._rearOpts = S._rearOpts;              // tests: numpy's noise for the rear speakers
+    // personal HRTF: each ear's own N1 / N2 (main_engine RoomEngineBridge: hrtf_notches), unless set in the settings
+    const ears = S._hrEars;
+    if (ears) for (const [lr, ch] of [['l', 'L'], ['r', 'R']]) { const v = ears[ch] || [0, 0];
+      if (!S['room_notch_' + lr + '_hz']) c['room_notch_' + lr + '_hz'] = Number(v[0] || 0); if (!S['room_notch2_' + lr + '_hz']) c['room_notch2_' + lr + '_hz'] = Number(v[1] || 0); }
     return c;
   }
   /** whole build for one mode: {h, dry, info, ...}; the build part (buildBrir) depends only on the room, the response on mix / level */
   function roomBuild(S, fs, mode, notchHz, cache, opts) {
     const c = roomCoreConfig(S, notchHz);
-    if (mode === 'pro22' && Number(c.room_version) >= 3) c.room_version = 2;   // Ver 3 is a ROOM-only change; Pro22 stays the PC's
-    const sigCfg = Object.assign({}, c); for (const k of ['room_mix_db', 'room_auto', 'room_auto_amount', 'song_attack_db', 'song_gap_decay_s', 'room_norm', 'room_norm_db', 'room_trim', 'room_track', 'p22_level_db', 'p22_late_db', 'p22_cross', 'p22_ext']) delete sigCfg[k];
+    if (mode === 'pro22') {                     // PC Pro22 keeps its tuned (Ver 2) room unless the Ver 3 keys are set; no centre / rear speakers
+      if (S.room_mid_abs === undefined || S.room_mid_abs === null) c.room_mid_abs = 0.0;
+      if (S.room_torso === undefined || S.room_torso === null) c.room_torso = 0.0;
+    }
+    const sigCfg = Object.assign({}, c); for (const k of ['room_layout', 'room_rear_share', 'room_center', '_rearOpts', 'room_mix_db', 'room_auto', 'room_auto_amount', 'song_attack_db', 'song_gap_decay_s', 'room_norm', 'room_norm_db', 'room_trim', 'room_track', 'p22_level_db', 'p22_late_db', 'p22_cross', 'p22_ext']) delete sigCfg[k];
     if (mode === 'pro22') Object.assign(sigCfg, { room_mix_db: 0.0, room_eq_bass: 0.0, room_eq_tone: 0.0 });
     const sig = JSON.stringify(sigCfg) + '|' + fs + '|' + mode;
     let built = cache && cache.sig === sig ? cache.built : null;
     if (!built) built = buildBrir(mode === 'pro22' ? Object.assign({}, c, { room_mix_db: 0.0, room_eq_bass: 0.0, room_eq_tone: 0.0 }) : c, fs, opts);
     const r = mode === 'pro22' ? pro22Response(built.parts, built.info, c, fs) : roomResponse(built.parts, built.info, c, fs);
-    return { sig, built, resp: r, info: built.info };
+    let center = null;
+    const cs = mode === 'room' ? rmCenterOf(c) : null;
+    if (cs !== null) {                                  // the centre loudspeaker: both speakers at 0 deg = one speaker in the middle
+      let cb = cache && cache.csig === sig ? cache.cbuilt : null;
+      if (!cb) cb = buildBrir(Object.assign({}, c, { room_spk_az: 0.0 }), fs, opts && opts.cnoise ? { noise: opts.cnoise } : undefined);
+      const d = rmCenterDelta(built, cb, r, fs);
+      center = { strength: cs, delta: d.delta, matchDb: d.matchDb, cbuilt: cb };
+    }
+    return { sig, built, resp: r, info: built.info, center };
   }
 
   // ---- the realtime convolution -------------------------------------------------------------------------------------------
@@ -4452,11 +4594,97 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
   }
   /** the ROOM / Pro22 spatial mode inside the engine: plays the convolver it is given, crossfades a new one in (6144 samples, like
    *  the PC's 3 blocks of 2048); passes the input through until the first response arrives */
+
+  // ---- centre loudspeaker (PC exospace_center.py + exospace_room CenterConvolver) -----------------------------------------
+  // The stereo input is split into L', C, R' (L' + C = L, R' + C = R exactly; C = what is the same in both channels, Avendano &
+  // Jot 2004); out = h_L * L + h_R * R + delta * C with delta = early response of a loudspeaker at 0 deg minus the phantom centre
+  // (both speakers), loudness matched. Latency: one STFT frame (512 samples at 44.1 / 48 kHz).
+  const CT_TAU = 0.040, CT_SELECT = 2.0, CT_FLO = [100.0, 200.0], CENTER_EARLY_S = 0.075, CENTER_FADE_S = 0.010;
+  class CenterUpmix {
+    constructor(fs, strength) {
+      this.fs = fs; this.N = fs > 60000 ? 1024 : 512; this.H = this.N / 2; const N = this.N, H = this.H, nb = N / 2 + 1;
+      this.win = Float64Array.from({ length: N }, (_, k) => Math.sqrt(0.5 - 0.5 * Math.cos(2 * Math.PI * k / N)));
+      this.lo = Float64Array.from({ length: nb }, (_, k) => Math.min(Math.max((k * fs / N - CT_FLO[0]) / (CT_FLO[1] - CT_FLO[0]), 0.0), 1.0));
+      this.a = Math.exp(-H / (CT_TAU * fs)); this.strength = Number(strength); this.latency = N;
+      this.pll = new Float64Array(nb).fill(1e-12); this.prr = new Float64Array(nb).fill(1e-12); this.plrR = new Float64Array(nb); this.plrI = new Float64Array(nb);
+      this.inL = new Float64Array(N); this.inR = new Float64Array(N); this.ola = new Float64Array(N);
+      this.lr = new Float64Array(N); this.li = new Float64Array(N); this.rr = new Float64Array(N); this.ri = new Float64Array(N); this.g = new Float64Array(nb); this.gs = new Float64Array(nb);
+      // queues: pending input (< H), the centre output (starts with N - H zeros), the delay line of L / R (starts with N zeros)
+      this.pendL = new Float64Array(H); this.pendR = new Float64Array(H); this.np = 0;
+      this.qc = new Float64Array(4 * N + 8192); this.qcN = N - H; this.qdL = new Float64Array(4 * N + 8192); this.qdR = new Float64Array(4 * N + 8192); this.qdN = N;
+      rmPlan(N);
+    }
+    _hop() {
+      const N = this.N, H = this.H, nb = N / 2 + 1, a = this.a, b = 1 - a;
+      this.inL.copyWithin(0, H); this.inR.copyWithin(0, H); this.inL.set(this.pendL, N - H); this.inR.set(this.pendR, N - H);
+      for (let i = 0; i < N; i++) { this.lr[i] = this.inL[i] * this.win[i]; this.li[i] = 0; this.rr[i] = this.inR[i] * this.win[i]; this.ri[i] = 0; }
+      rmFft(this.lr, this.li, false); rmFft(this.rr, this.ri, false);
+      for (let k = 0; k < nb; k++) {
+        const Lr = this.lr[k], Li = this.li[k], Rr = this.rr[k], Ri = this.ri[k];
+        this.pll[k] = a * this.pll[k] + b * (Lr * Lr + Li * Li); this.prr[k] = a * this.prr[k] + b * (Rr * Rr + Ri * Ri);
+        this.plrR[k] = a * this.plrR[k] + b * (Lr * Rr + Li * Ri); this.plrI[k] = a * this.plrI[k] + b * (Li * Rr - Lr * Ri);
+        const c = Math.sqrt(this.pll[k] * this.prr[k]), coh = Math.max(this.plrR[k], 0.0) / Math.max(c, 1e-20), bal = 2.0 * c / Math.max(this.pll[k] + this.prr[k], 1e-20);
+        this.g[k] = Math.pow(Math.min(Math.max(coh * bal, 0.0), 1.0), CT_SELECT);
+      }
+      for (let k = 0; k < nb; k++) { const s3 = (k > 0 ? this.g[k - 1] : 0) + this.g[k] + (k < nb - 1 ? this.g[k + 1] : 0); this.gs[k] = Math.min(Math.max(this.strength * s3 / 3.0 * this.lo[k], 0.0), 1.0); }
+      // C = g (L + R) / 2 -> inverse (Hermitian), sqrt-Hann synthesis, overlap-add
+      for (let k = 0; k < nb; k++) { const g = 0.5 * this.gs[k]; this.lr[k] = g * (this.lr[k] + this.rr[k]); this.li[k] = g * (this.li[k] + this.ri[k]); }
+      this.li[0] = 0; this.li[N / 2] = 0;
+      for (let k = 1; k < N / 2; k++) { this.lr[N - k] = this.lr[k]; this.li[N - k] = -this.li[k]; }
+      rmFft(this.lr, this.li, true);
+      for (let i = 0; i < N; i++) this.ola[i] += this.lr[i] / N * this.win[i];
+      this.qc.set(this.ola.subarray(0, H), this.qcN); this.qcN += H;
+      this.ola.copyWithin(0, H); this.ola.fill(0, N - H);
+    }
+    /** stereo block in -> L', R', C (same length, delayed by `latency`) into the given arrays */
+    process(xl, xr, outL, outR, outC) {
+      const n = xl.length, H = this.H;
+      this.qdL.set(xl, this.qdN); this.qdR.set(xr, this.qdN); this.qdN += n;
+      for (let i = 0; i < n; i++) { this.pendL[this.np] = xl[i]; this.pendR[this.np] = xr[i]; if (++this.np === H) { this._hop(); this.np = 0; } }
+      for (let i = 0; i < n; i++) { const c = this.qc[i]; outC[i] = c; outL[i] = this.qdL[i] - c; outR[i] = this.qdR[i] - c; }
+      this.qc.copyWithin(0, n, this.qcN); this.qcN -= n; this.qdL.copyWithin(0, n, this.qdN); this.qdR.copyWithin(0, n, this.qdN); this.qdN -= n;
+    }
+  }
+  /** strength of the centre loudspeaker for these settings (PC _center_key), or null; only ROOM, not Pro22 */
+  function rmCenterOf(cfg) {
+    if (!RM_LAYOUTS[rmLayoutOf(cfg)][0]) return null;
+    const ver = rmParams(cfg).room_version, raw = cfg.room_center !== null && cfg.room_center !== undefined ? cfg.room_center : rmDefaultsFor(ver).room_center;
+    const v = Math.min(Math.max(rmNum({ v: raw }, 'v', 0.0), 0.0), 1.0);
+    return v >= 0.01 ? Math.round(v * 100) / 100 : null;
+  }
+  /** (2 ears) early response of the centre loudspeaker minus the phantom centre, loudness matched (PC _center_delta) */
+  function rmCenterDelta(built, cbuilt, resp, fs) {
+    const hc0 = rmAssemble(cbuilt.parts, resp.mixDb, built.parts.eqG || undefined), lead = resp.lead, gn = resp.gain;
+    const hc = [0, 1].map((e) => { const a = hc0[0][e], b = hc0[1][e], o = new Float64Array(Math.max(0, a.length - lead)); for (let i = 0; i < o.length; i++) o[i] = (a[i + lead] + b[i + lead]) * gn; return o; });
+    const ph = [0, 1].map((e) => { const a = resp.h[0][e], b = resp.h[1][e], o = new Float64Array(a.length); for (let i = 0; i < a.length; i++) o[i] = a[i] + b[i]; return o; });
+    const n = Math.min(hc[0].length, ph[0].length); let nf = 1; while (nf < n) nf <<= 1;
+    const f = rmRfftFreq(nf, fs), lev = (x) => { let t = 0; for (const ch of x) { const X = rmRfft(ch.subarray(0, n), nf); for (let k = 0; k < f.length; k++) if (f[k] >= 200.0 && f[k] <= 4000.0) t += (X.re[k] ** 2 + X.im[k] ** 2) / f[k]; } return t; };
+    const k = Math.sqrt(lev(ph) / Math.max(lev(hc), 1e-30)), ne = Math.min(Math.trunc(CENTER_EARLY_S * fs), n), nfd = Math.trunc(CENTER_FADE_S * fs);
+    const wv = new Float64Array(ne).fill(1.0); for (let i = 1; i <= nfd; i++) wv[ne - nfd + i - 1] = 0.5 * (1.0 + Math.cos(Math.PI * i / nfd));
+    const delta = [0, 1].map((e) => { const o = new Float64Array(ne); for (let i = 0; i < ne; i++) o[i] = (k * hc[e][i] - ph[e][i]) * wv[i]; return o; });
+    return { delta, matchDb: 20.0 * Math.log10(k) };
+  }
+  /** the room with a centre loudspeaker: main convolver on the (delayed) input + delta * C */
+  class CenterConv {
+    constructor(plan) {
+      this.main = new RoomConv(plan); this.cen = new RoomConv(plan.center); this.up = new CenterUpmix(plan.centerFs, plan.centerStrength);
+      this.nTaps = this.main.nTaps; this.latency = this.up.latency; this.strength = plan.centerStrength;
+      const B = 4096; this.l2 = new Float64Array(B); this.r2 = new Float64Array(B); this.c = new Float64Array(B); this.z = new Float64Array(B); this.zl = new Float64Array(B); this.zr = new Float64Array(B);
+    }
+    process(a, b, yl, yr, m) {
+      const l2 = this.l2.subarray(0, m), r2 = this.r2.subarray(0, m), c = this.c.subarray(0, m), zl = this.zl.subarray(0, m), zr = this.zr.subarray(0, m);
+      this.up.process(a, b, l2, r2, c);
+      for (let i = 0; i < m; i++) { l2[i] += c[i]; r2[i] += c[i]; }          // = the input, delayed like c
+      this.main.process(l2, r2, yl, yr, m);
+      this.cen.process(c, this.z.subarray(0, m), zl, zr, m);
+      for (let i = 0; i < m; i++) { yl[i] += zl[i]; yr[i] += zr[i]; }
+    }
+  }
   class RoomMode {
     constructor(fs) { this.fs = fs; this.conv = null; this.old = null; this.fadeN = 6144; this.fadeLeft = 0; this.tl = new Float64Array(128); this.tr = new Float64Array(128); this.ready = false; }
     setPlan(plan) {
       if (!plan) return;
-      const c = new RoomConv(plan);
+      const c = plan.center ? new CenterConv(plan) : new RoomConv(plan);
       if (this.conv) { this.old = this.conv; this.fadeLeft = this.fadeN; }
       this.conv = c; this.ready = true;
     }
@@ -5178,11 +5406,11 @@ canvas.curve { height: 130px; border: 1px solid var(--line); border-radius: 10px
 
   return {
     Engine, Limiter, MODE_CLASSES, buildSpeakerIr, EqFirStage, designFirPair, parseEqPc, fpDpss, fpRfft, fpIrfft, fpPchip, fpWindow, ExStage, exHilbert, exButterHp2,
-    buildBrir, rmAssemble, roomResponse, pro22Response, roomBuild, roomCoreConfig, roomConvPlan, RoomConv, RoomMode, rmRfft, rmIrfft, rmFft, sphereTable, sphBessel, rmParams, rmFaceMaterial, rmEyring, rmLayout, rmButterResp, rmMinPhase, ROOM_DEFAULTS, P22_DEFAULTS, Pro10V3, Pro12V2, Pro13, Pro14V2, Pro15, Pro16, Pro17, Air8, Pro21, WetShaper, wetShapeFir, directivityNodesDb, chValue, GainRamp,
+    buildBrir, rmAssemble, CenterUpmix, CenterConv, rmCenterOf, rmCenterDelta, rmDefaultsFor, rmLayoutOf, rmRearShareOf, rmApplyRear, rmImagePart, rmTorsoReflection, RM_LAYOUTS, roomResponse, pro22Response, roomBuild, roomCoreConfig, roomConvPlan, RoomConv, RoomMode, rmRfft, rmIrfft, rmFft, sphereTable, sphBessel, rmParams, rmFaceMaterial, rmEyring, rmLayout, rmButterResp, rmMinPhase, ROOM_DEFAULTS, P22_DEFAULTS, Pro10V3, Pro12V2, Pro13, Pro14V2, Pro15, Pro16, Pro17, Air8, Pro21, WetShaper, wetShapeFir, directivityNodesDb, chValue, GainRamp,
     BauerV3, Bs2b, Fdn, TapSet: makeTapSet, VertTaps, Cascade, calibrationScale,
     designBauerV3, normaliseParams, normaliseV4, levelsDb, rtScale, butterHP2, peaking, shelf, lowpass1,
     DEFAULTS, V4_DEFAULTS, ENGINE_DEFAULTS, FDN_MS, AP_MS,
-    parseEQ, eqDb, eqPreDb, eqMagDb, eqFilterCoefs, hrParse, hrDb, hrKeepGain, hrInterp, hrNotchOf, hrDesign, designPost, PostChain, PConv, minPhaseFirDb,
+    parseEQ, eqDb, eqPreDb, eqMagDb, eqFilterCoefs, hrParse, hrDb, hrKeepGain, hrInterp, hrNotchOf, hrNotchesOf, hrDesign, designPost, PostChain, PConv, minPhaseFirDb,
     pro21Check, pro21Events, P21_DEFAULTS, P21_REFL, P21_SURF,
   };
 });
@@ -5207,7 +5435,7 @@ const DEFAULTS = {
   eqOn: false, eqPre: true, eqName: '', hrOn: false, hrSync: true, hrName: '', hr_mode: 'keep',
   p21_air_db_per_m: [0.0, 0.01, 0.04, 0.10],
   eq_first: true, eq_engine: 'min', pc_hpf: '', pcfir: { taps: 43200, window_idx: '1', kaiser_beta: 8.6, hpf: 20.0, lpf: 20000.0, filter_ver: 2, interp_mode: 'hermite', phase_mode: 'pure', norm_mode: 'off', h4_ha_weight: 1.0, h4_pa_depth: 1.0, h5_min_hz: 80.0, mix_mode: 'avg' },
-  ex_enabled: false, ex_mode: 'standard', room_material: 'standard', room_version: 3,
+  ex_enabled: false, ex_mode: 'standard', room_material: 'standard', room_version: 4, room_layout: '3-2',
 };
 for (const w of DSP.P21_SURF) DEFAULTS['p21_reflect_' + w] = DSP.P21_REFL[w].slice();
 
@@ -5332,6 +5560,10 @@ const SPEC = {
   room_dir: ['スピーカーの指向性', 0, 1.5, 0.01, 1.0, '', 2],
   room_pinna: ['耳の形の手がかり', 0, 1, 0.01, 0.6, '', 2],
   room_norm_db: ['音量の補正', -12, 12, 0.1, 0, ' dB', 1],
+  room_mid_abs: ['中低域 (250 Hz) の吸音 (Ver 3・4)', 0, 0.4, 0.01, 0.15, '', 2],
+  room_torso: ['胴体と肩の反射 (Ver 3・4)', 0, 1, 0.01, 0.5, '', 2],
+  room_rear_share: ['後ろへ回す響きの割合 (Ver 4)', 0, 0.95, 0.01, 0.5, '', 2],
+  room_center: ['中央スピーカーの強さ (Ver 3・4)', 0, 1, 0.01, 1.0, '', 2],
   room_order: ['反射の次数', 0, 6, 1, 3, '', 0],
   air_temp: ['気温 (空気の吸収)', -10, 40, 0.5, 20, ' °C', 1],
   air_humidity: ['湿度 (空気の吸収)', 5, 100, 1, 50, ' %', 0],
@@ -5401,7 +5633,7 @@ const MODES = {
   room: { name: 'ROOM', replace: true, extra: 'room',
     note: '部屋の大きさ・壁の材質・スピーカーと聴き手の位置から、2本のスピーカーが部屋で鳴った音を両耳で受けた応答 (反射3回までの鏡像、拡散した残響、低音の部屋の共振) を計算し、その応答を曲に畳み込みます。PC版の ROOM (exospace_room.py) と同じ計算です (版を Ver 2 にしたとき。初期の Ver 3 は 250 Hz のこもりだけを減らした、この端末だけの版です)。クロスフィードは使いません (左右の回り込みは部屋と頭のモデルが作ります)。',
     simple: ['r_distance', 'room_mix_db'],
-    ctl: ['room_mix_db', 'p21_room_width', 'p21_room_front', 'p21_room_back', 'p21_room_height', 'r_distance', 'room_spk_az', 'room_spk_z', 'room_spk_lf_hz', 'room_offset_m', 'room_ceiling_scatter', 'room_bass_trap', 'room_eq_bass', 'room_eq_tone', 'room_dir', 'room_pinna', 'room_norm_db', 'room_order', 'air_temp', 'air_humidity'] },
+    ctl: ['room_mix_db', 'p21_room_width', 'p21_room_front', 'p21_room_back', 'p21_room_height', 'r_distance', 'room_spk_az', 'room_spk_z', 'room_spk_lf_hz', 'room_offset_m', 'room_ceiling_scatter', 'room_bass_trap', 'room_eq_bass', 'room_eq_tone', 'room_dir', 'room_pinna', 'room_mid_abs', 'room_torso', 'room_rear_share', 'room_center', 'room_norm_db', 'room_order', 'air_temp', 'air_humidity'] },
   pro22: { name: 'Pro 22', bauer: true, extra: 'room',
     note: '直接音は入力のまま (クロスフィードは掛けられます) にして、ROOM と同じ部屋の反射と残響だけを足します。PC版の Pro22 (exospace_pro22.py) と同じ計算です。',
     ctl: ['p22_level_db', 'p22_late_db', 'p21_room_width', 'p21_room_front', 'p21_room_back', 'p21_room_height', 'r_distance', 'room_spk_az', 'room_spk_z', 'room_spk_lf_hz', 'room_offset_m', 'room_ceiling_scatter', 'room_bass_trap', 'room_dir', 'room_pinna', 'room_order', 'air_temp', 'air_humidity'] },
@@ -5424,7 +5656,13 @@ try { Object.assign(S, JSON.parse(localStorage.getItem(LS) || '{}')); } catch (e
 if (S.lockFx === undefined) S.lockFx = true;
 S.bypass = false;
 const save = () => { try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) { /* ignore */ } };
-if (!S.roomV3) { if (S.room_version === 2) S.room_version = 3; S.roomV3 = true; save(); }   // ROOM Ver 3 (less 250 Hz boom) became the default once; Ver 2 stays selectable
+// the PC's ROOM versions (exospace_room.py VERSION_DEFAULTS): a version brings its own values for these keys
+const ROOM_VER_KEYS = ['room_spk_z', 'room_ceiling_scatter', 'room_bass_trap', 'room_eq_bass', 'room_eq_tone', 'room_mid_abs', 'room_torso', 'room_center', 'room_layout', 'room_rear_share'];
+function roomVersionValues(v, from) {            // S gets version v's values (or those in `from`, e.g. a PC settings file)
+  const d = DSP.rmDefaultsFor(v); S.room_version = v;
+  for (const k of ROOM_VER_KEYS) { const x = from && from[k] !== undefined && from[k] !== null ? from[k] : d[k]; if (x === null || x === undefined) delete S[k]; else S[k] = x; }
+}
+if (!S.roomPc4) { if (S.room_version === 2 || S.room_version === 3 || S.room_version === undefined) roomVersionValues(4); S.roomPc4 = true; save(); }   // the PC's Ver 4 became the default once (this app's own old "Ver 3" is gone)
 
 // ---- reflection table (room shape) -------------------------------------------------------------------------------
 let TABLE = TABLE0;
@@ -6079,7 +6317,11 @@ function renderMode() {
       if (!M.simple) add('<div class="msg" id="roomInfo">再生を始めると、部屋の応答を作ります。</div>');
       add('<div class="ctl"><label for="roomMat">壁の材質</label><select id="roomMat"><option value="standard">ふつうの壁</option><option value="listening_room">吸音した試聴室の壁</option><option value="concrete_plywood">コンクリート + 合板</option><option value="perforated_board">穴あき板 (よく吸う)</option><option value="grass_field">草地 (屋外に近い)</option></select></div>');
       add('<div class="msg" id="roomFaces" hidden>PC版の設定から、面ごとの壁の材質 (床・天井・左右・前後) を読み込んでいます。そちらが上の「壁の材質」より優先されます。<button class="btn small" id="roomFacesClear">面ごとの材質を外す</button></div>');
-      if (S.mode === 'room') add('<div class="ctl"><label for="roomVer">版</label><select id="roomVer"><option value="3">Ver 3 — 250 Hz のこもりを減らした版 (おすすめ・この端末だけ)</option><option value="2">Ver 2 — PC版と同じ (低音の凸凹と音色を補正)</option><option value="1">Ver 1 — 最初の版 (聴き比べ用)</option></select><div class="hint">Ver 3 は、250 Hz あたりだけ響きが長く残る「こもり」をなくした版です。PC版と完全に同じ音にしたいときは Ver 2 にしてください。</div></div>');
+      if (S.mode === 'room') {
+        add('<div class="ctl"><label for="roomVer">版</label><select id="roomVer"><option value="4">Ver 4 — スピーカーの並びを選べる版 (後ろのスピーカーつき)</option><option value="3">Ver 3 — 中低域の響きをそろえ、胴体と肩の反射を足した版</option><option value="2">Ver 2 — 低音の凸凹と音色を補正した版</option><option value="1">Ver 1 — 最初の版 (聴き比べ用)</option></select><div class="hint">PC版の ROOM と同じ版です。版を変えると、その版の値 (低音を吸う壁・補正・中央スピーカーなど) に戻ります。</div></div>');
+        add('<div class="ctl"><label for="roomLayout">スピーカーの並び (Ver 4)</label><select id="roomLayout"><option value="3-2">3-2 — 前 3 本 + 後ろ ±120° 2 本 (5.1ch と同じ並び)</option><option value="3-1">3-1 — 前 3 本 + 真後ろ 1 本</option><option value="2-2">2-2 — 前 2 本 + 後ろ ±120° 2 本</option><option value="3ch">3ch — 左・中央・右</option><option value="2ch">2ch — 左右 2 本だけ</option></select><div class="hint">後ろのスピーカーからは、部屋の響きだけが届きます (ステレオ曲には後ろ用の音がないため)。響きの総量は変わりません。中央がない並びは音像が上がりやすい。2-2 が最も自然、3-1 が総合品質で最高 (本の比較)。</div></div>');
+        add('<div class="hint">中央スピーカー (Ver 3・4、並びに中央があるとき): 左右で同じ音 (主にボーカル) を正面 0° の 3 本目から鳴らします。2 本で作る中央の音像は上に上がりやすいため。遅れが約 11 ms 増えます。強さは下の「中央スピーカーの強さ」。</div>');
+      }
     }
     for (const k of M.ctl) if (main.has(k) && !(M.simple || []).includes(k)) add(ctlRow(k, 'm_'));
     if (M.simple) $('roomEasyReset').onclick = () => { for (const k of M.simple) setKey(k, DEFAULTS[k] !== undefined ? DEFAULTS[k] : SPEC[k][4], null); refreshCtls(); };
@@ -6112,11 +6354,11 @@ function renderMode() {
     $('roomFaces').hidden = !(S.wall_faces_6d && typeof S.wall_faces_6d === 'object' && Object.keys(S.wall_faces_6d).length);
     $('roomFacesClear').onclick = () => { delete S.wall_faces_6d; delete S.audience_absorb_low; save(); syncUi(); pushParams(); };
     if ($('roomVer')) {
-      $('roomVer').value = String(S.room_version === 1 ? 1 : S.room_version === 2 ? 2 : 3);
-      $('roomVer').onchange = () => {            // a version brings its own values for the keys it changes
-        const v = Number($('roomVer').value), d = v === 1 ? { room_spk_z: 1.2, room_bass_trap: 0.0, room_eq_bass: 0.0, room_eq_tone: 0.0 } : { room_spk_z: 1.0, room_ceiling_scatter: 0.9, room_bass_trap: 0.25, room_eq_bass: 1.0, room_eq_tone: 0.5 };
-        S.room_version = v; Object.assign(S, d); if (v === 1) delete S.room_ceiling_scatter; if (v !== 3) S.roomV3 = true; save(); syncUi(); refreshCtls(); pushParams();
-      };
+      const ver = Math.max(1, Math.min(4, Math.round(Number(S.room_version) || 4)));
+      $('roomVer').value = String(ver);
+      $('roomVer').onchange = () => { roomVersionValues(Number($('roomVer').value)); save(); syncUi(); refreshCtls(); pushParams(); };
+      $('roomLayout').value = S.room_layout || '3-2'; $('roomLayout').disabled = ver < 4;
+      $('roomLayout').onchange = () => { S.room_layout = $('roomLayout').value; save(); pushParams(); };
     }
     roomShow();
   }
@@ -6258,6 +6500,7 @@ function decodeText(buf) {
   return new TextDecoder('utf-8').decode(buf);
 }
 const curNotch = () => ((HR && S.hrOn && S.hrSync && HR.notch) ? HR.notch : 0);
+const curEars = () => ((HR && S.hrOn && S.hrSync && HR.ears) ? HR.ears : null);   // per ear N1 / N2 for ROOM
 const postFs = () => (ctx ? ctx.sampleRate : 48000);
 function postSpec(fs) { return DSP.designPost({ eq: EQ, eqOn: S.eqOn && S.eq_engine !== 'pc', usePre: S.eqPre, hr: HR, hrOn: S.hrOn, hrAmt: (Number(S.hrAmt) || 0) / 100, hrMode: S.hr_mode }, fs); }
 let postTimer = 0;
@@ -6282,7 +6525,9 @@ function eqLoad(text, name, quiet) {
 let HR_TEXT = '';                                          // the text the HRTF was read from, kept so it can be saved or sent to another device
 function hrLoad(text, name, quiet) {
   let P = null;
-  try { P = DSP.hrParse(text, name); P.notch = DSP.hrNotchOf(P) || 0; } catch (e) { P = null; postErr.hr = '読み込めませんでした: ' + e.message; }
+  try { P = DSP.hrParse(text, name); P.ears = DSP.hrNotchesOf(P);
+    const n1 = ['L', 'R'].map((c) => P.ears[c][0]).filter((x) => x > 0);    // PC hrtf_notch_hz: the geometric mean of the two ears' own N1
+    P.notch = n1.length ? Math.exp(n1.reduce((a, x) => a + Math.log(x), 0) / n1.length) : (DSP.hrNotchOf(P) || 0); } catch (e) { P = null; postErr.hr = '読み込めませんでした: ' + e.message; }
   if (!P) { renderPostMsgs(); return false; }
   postErr.hr = ''; HR = P; HR_TEXT = text; S.hrName = name || '';
   if (!quiet) { S.hrOn = true; lsSet(LS_HR, text.length < 400000 ? text : ''); save(); pushPost(true); pushParams(); }
@@ -6449,11 +6694,13 @@ self.onmessage = (ev) => {
   const { id, S, fs, mode, notch } = ev.data;
   try {
     const r = ExoDSP.roomBuild(S, fs, mode, notch, cache[mode]);
-    cache[mode] = { sig: r.sig, built: r.built };
+    cache[mode] = { sig: r.sig, built: r.built, csig: r.center ? r.sig : null, cbuilt: r.center ? r.center.cbuilt : null };
     const plan = ExoDSP.roomConvPlan(r.resp.h, 128); plan.dry = r.resp.dry;
+    if (r.center) { const z = new Float64Array(r.center.delta[0].length); plan.center = ExoDSP.roomConvPlan([[r.center.delta[0], r.center.delta[1]], [z, z]], 128); plan.centerStrength = r.center.strength; plan.centerFs = fs; }
     const inf = r.info, info = { taps: plan.nTaps, fs, t500: inf.t_oct[3], dims: inf.dims, first_ms: inf.first_refl_ms, build_ms: inf.build_ms,
-      gain_db: r.resp.gainDb, mix_db: r.resp.mixDb, meas: r.resp.meas || null, truncated: inf.truncated, absorb_extra: inf.absorb_extra, n_images: inf.n_images };
-    self.postMessage({ id, mode, plan, info }, plan.tiers.map((t) => t.H.buffer));
+      gain_db: r.resp.gainDb, mix_db: r.resp.mixDb, meas: r.resp.meas || null, truncated: inf.truncated, absorb_extra: inf.absorb_extra, n_images: inf.n_images,
+      center: r.center ? { strength: r.center.strength, match_db: r.center.matchDb, latency_ms: 1000 * (fs > 60000 ? 1024 : 512) / fs } : null };
+    self.postMessage({ id, mode, plan, info }, plan.tiers.map((t) => t.H.buffer).concat(plan.center ? plan.center.tiers.map((t) => t.H.buffer) : []));
   } catch (e) { self.postMessage({ id, mode, error: String(e && e.message || e) }); }
 };`;
 let roomWorker = null, roomWorkerFailed = false, roomBusy = false, roomQueued = null, roomSeq = 0, roomLocalCache = {};
@@ -6472,6 +6719,7 @@ function roomKey(req) { return JSON.stringify(DSP.roomCoreConfig(req.S, req.notc
 function roomRequest(prm) {
   if (!ROOM_MODES.has(S.mode) || !ctx) { roomShow(); return; }
   const req = { S: JSON.parse(JSON.stringify(S)), fs: ctx.sampleRate, mode: S.mode, notch: prm ? prm.notch_hz || 0 : 0 };
+  const ears = curEars(); if (ears) req.S._hrEars = ears;
   req.key = roomKey(req);
   if (roomApplied[req.mode] === req.key) { roomShow(); return; }
   roomQueued = req; roomKick();
@@ -6484,12 +6732,14 @@ function roomKick() {
   setTimeout(() => {                             // no worker: on this thread (the screen pauses for a moment)
     try {
       const r = DSP.roomBuild(req.S, req.fs, req.mode, req.notch, roomLocalCache[req.mode]);
-      roomLocalCache[req.mode] = { sig: r.sig, built: r.built };
+      roomLocalCache[req.mode] = { sig: r.sig, built: r.built, csig: r.center ? r.sig : null, cbuilt: r.center ? r.center.cbuilt : null };
       const plan = DSP.roomConvPlan(r.resp.h, 128); plan.dry = r.resp.dry;
+      if (r.center) { const z = new Float64Array(r.center.delta[0].length); plan.center = DSP.roomConvPlan([[r.center.delta[0], r.center.delta[1]], [z, z]], 128); plan.centerStrength = r.center.strength; plan.centerFs = req.fs; }
       const inf = r.info;
       roomStat.pending = req;
       roomDone({ id: req.id, mode: req.mode, plan, info: { taps: plan.nTaps, fs: req.fs, t500: inf.t_oct[3], dims: inf.dims, first_ms: inf.first_refl_ms, build_ms: inf.build_ms,
-        gain_db: r.resp.gainDb, mix_db: r.resp.mixDb, meas: r.resp.meas || null, truncated: inf.truncated, absorb_extra: inf.absorb_extra, n_images: inf.n_images } });
+        gain_db: r.resp.gainDb, mix_db: r.resp.mixDb, meas: r.resp.meas || null, truncated: inf.truncated, absorb_extra: inf.absorb_extra, n_images: inf.n_images,
+        center: r.center ? { strength: r.center.strength, match_db: r.center.matchDb, latency_ms: 1000 * (req.fs > 60000 ? 1024 : 512) / req.fs } : null } });
     } catch (e) { roomStat.pending = req; roomDone({ id: req.id, mode: req.mode, error: String(e && e.message || e) }); }
   }, 30);
 }
@@ -6498,7 +6748,7 @@ function roomDone(m) {
   if (m.error) { roomStat.err = m.error; roomStat.errMode = m.mode; }
   else {
     roomStat.err = '';
-    if (node) node.port.postMessage({ type: 'room', mode: m.mode, plan: m.plan }, m.plan.tiers.map((t) => t.H.buffer));
+    if (node) node.port.postMessage({ type: 'room', mode: m.mode, plan: m.plan }, m.plan.tiers.map((t) => t.H.buffer).concat(m.plan.center ? m.plan.center.tiers.map((t) => t.H.buffer) : []));
     else if (engineMain) engineMain.setRoom(m.mode, m.plan);
     if (req) roomApplied[m.mode] = req.key;
     roomStat.info = roomStat.info || {}; roomStat.info[m.mode] = m.info;
@@ -6514,6 +6764,8 @@ function roomShow() {
   else if (roomStat.building || roomQueued) t = (inf ? '新しい設定で作り直しています (それまで前の応答で鳴ります) …' : '部屋の応答を作成中 (できるまで素通しです) …') + (roomWorkerFailed ? ' 画面が少し止まります。' : '');
   else if (inf) {
     t = `動作中 | 応答 ${(inf.taps / inf.fs).toFixed(2)} 秒 | 響き (500 Hz) ${inf.t500.toFixed(2)} 秒 | 部屋 ${inf.dims[0].toFixed(1)}×${inf.dims[1].toFixed(1)}×${inf.dims[2].toFixed(1)} m | 反射 ${inf.n_images} 本 | 作成 ${(inf.build_ms / 1000).toFixed(1)} 秒`;
+    if (md === 'room') { const lay = DSP.rmLayoutOf(S), rs = DSP.rmRearShareOf(S); t += ` | Ver ${DSP.rmParams(S).room_version} | 並び ${lay}${rs > 0 ? ` (後ろの響き ${(100 * rs).toFixed(0)}%)` : ''}`;
+      if (inf.center) t += ` | 中央スピーカー ${inf.center.strength.toFixed(2)} (遅れ +${inf.center.latency_ms.toFixed(0)} ms)`; }
     if (md === 'room') t += ` | 距離 ${Number(S.room_spk_dist !== undefined ? S.room_spk_dist : S.r_distance).toFixed(2)} m | 響きの量 ${inf.mix_db >= 0 ? '+' : ''}${inf.mix_db.toFixed(1)} dB | 音量補正 ${inf.gain_db.toFixed(1)} dB`;
     if (md === 'pro22' && inf.meas) t += ` | 初期反射 ${inf.meas.early_db.toFixed(1)} dB | 後期−初期 ${inf.meas.le_db.toFixed(1)} dB`;
     if (inf.absorb_extra > 0) t += ` | 響きが長すぎるので吸音を ${(100 * inf.absorb_extra).toFixed(0)}% 足して短縮`;
@@ -6616,6 +6868,8 @@ function pcImport(cfg) {
       if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string') { S[k] = v; n++; }
     }
   }
+  if (cfg.r_mode !== undefined || ROOM_VER_KEYS.some((k) => k in cfg) || 'room_version' in cfg) {   // missing keys = the PC version's own values (PC default: Ver 4)
+    const v = Math.max(1, Math.min(4, Math.round(Number(cfg.room_version !== undefined && cfg.room_version !== null ? cfg.room_version : 4)) || 4)); roomVersionValues(v, cfg); }
   if (cfg.wall_faces_6d && typeof cfg.wall_faces_6d === 'object') { S.wall_faces_6d = JSON.parse(JSON.stringify(cfg.wall_faces_6d)); done.push('面ごとの壁の材質'); }
   if (cfg.ex_enabled !== undefined) done.push('EX ' + (cfg.ex_enabled ? '入 (' + (cfg.ex_mode || 'standard') + ')' : '切'));
   if (cfg.hrtf_amount !== undefined && isFinite(Number(cfg.hrtf_amount))) S.hrAmt = Math.round(Number(cfg.hrtf_amount) * 100);
@@ -6644,7 +6898,7 @@ function irExport() {
   if (!ROOM_MODES.has(S.mode)) { irMsg('空間モードを ROOM か Pro22 にしてから書き出してください (ほかのモードは時間で変わる処理を含むため、ファイルにできません)。', true); return; }
   const fs = Number($('irFs').value) || 48000, { prm, geo, cal } = buildParams();
   let spec = null; try { spec = postSpec(fs); } catch (e) { /* no EQ / HRTF */ }
-  const o = { fs, S: JSON.parse(JSON.stringify(S)), mode: S.mode, notch: prm.notch_hz || 0, prm, geo, cal, spec,
+  const o = { fs, S: Object.assign(JSON.parse(JSON.stringify(S)), curEars() ? { _hrEars: curEars() } : {}), mode: S.mode, notch: prm.notch_hz || 0, prm, geo, cal, spec,
     fir: S.eqOn && S.eq_engine === 'pc' ? { cfg: firCfg(), text: EQ_TEXT || '' } : null, minPhase: $('irDelay').value !== 'lin' };
   irBusy = true; $('irSave').hidden = true; irMsg('作成中 … (部屋の応答と EQ を作り、左右それぞれのインパルスを通します。10〜30 秒)');
   const w = roomWorkerGet();
